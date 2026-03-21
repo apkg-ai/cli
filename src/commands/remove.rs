@@ -1,0 +1,118 @@
+use std::env;
+use std::path::Path;
+
+use crate::config::manifest;
+use crate::error::AppError;
+use crate::util::display;
+use crate::util::package::DepCategory;
+
+pub struct RemoveOptions<'a> {
+    pub package: &'a str,
+    pub category: DepCategory,
+}
+
+pub fn run(opts: &RemoveOptions<'_>) -> Result<(), AppError> {
+    let cwd = env::current_dir()?;
+    let mut m = manifest::load(&cwd)?;
+
+    let deps = match opts.category {
+        DepCategory::Dependencies => m.dependencies.as_mut(),
+        DepCategory::DevDependencies => m.dev_dependencies.as_mut(),
+        DepCategory::PeerDependencies => m.peer_dependencies.as_mut(),
+    };
+
+    let Some(deps) = deps else {
+        return Err(AppError::Other(format!(
+            "Package \"{}\" is not in {}",
+            opts.package,
+            opts.category.label(),
+        )));
+    };
+
+    if deps.remove(opts.package).is_none() {
+        return Err(AppError::Other(format!(
+            "Package \"{}\" is not in {}",
+            opts.package,
+            opts.category.label(),
+        )));
+    }
+
+    // Clear the map if it's now empty so it's omitted from qpm.json
+    if deps.is_empty() {
+        match opts.category {
+            DepCategory::Dependencies => m.dependencies = None,
+            DepCategory::DevDependencies => m.dev_dependencies = None,
+            DepCategory::PeerDependencies => m.peer_dependencies = None,
+        }
+    }
+
+    manifest::save(&cwd, &m)?;
+
+    // Remove installed files
+    let install_dir = cwd.join("qpm_packages").join(opts.package);
+    let removed_files = if install_dir.exists() {
+        std::fs::remove_dir_all(&install_dir)?;
+        cleanup_empty_parents(&install_dir, &cwd.join("qpm_packages"));
+        true
+    } else {
+        false
+    };
+
+    display::success(&format!("Removed {} from {}", opts.package, opts.category.label()));
+    if removed_files {
+        display::label_value("Deleted", &install_dir.display().to_string());
+    }
+
+    Ok(())
+}
+
+/// Remove empty parent directories up to (but not including) `stop_at`.
+/// Handles scoped packages: removing `qpm_packages/@scope/pkg` may leave
+/// an empty `qpm_packages/@scope/` directory.
+fn cleanup_empty_parents(path: &Path, stop_at: &Path) {
+    let mut current = path.parent();
+    while let Some(parent) = current {
+        if parent == stop_at {
+            break;
+        }
+        // Only remove if empty
+        if std::fs::read_dir(parent).is_ok_and(|mut d| d.next().is_none()) {
+            let _ = std::fs::remove_dir(parent);
+        } else {
+            break;
+        }
+        current = parent.parent();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cleanup_empty_parents_removes_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path().join("qpm_packages");
+        let scope_dir = base.join("@scope");
+        let pkg_dir = scope_dir.join("pkg");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        // Simulate the package dir already being removed
+        std::fs::remove_dir(&pkg_dir).unwrap();
+        cleanup_empty_parents(&pkg_dir, &base);
+        assert!(!scope_dir.exists(), "empty @scope dir should be removed");
+    }
+
+    #[test]
+    fn test_cleanup_empty_parents_keeps_nonempty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path().join("qpm_packages");
+        let scope_dir = base.join("@scope");
+        let pkg_dir = scope_dir.join("pkg");
+        let other_dir = scope_dir.join("other-pkg");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::create_dir_all(&other_dir).unwrap();
+        std::fs::remove_dir(&pkg_dir).unwrap();
+        cleanup_empty_parents(&pkg_dir, &base);
+        assert!(scope_dir.exists(), "@scope dir should remain because other-pkg exists");
+    }
+}

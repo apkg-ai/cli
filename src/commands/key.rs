@@ -1,0 +1,272 @@
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
+use ed25519_dalek::{Signer, SigningKey};
+use rand::rngs::OsRng;
+use sha2::{Digest, Sha256};
+
+use crate::api::client::ApiClient;
+use crate::config::keys;
+use crate::error::AppError;
+use crate::util::display;
+
+pub enum KeyAction<'a> {
+    Generate {
+        name: &'a str,
+    },
+    List {
+        local: bool,
+    },
+    Register {
+        name: Option<&'a str>,
+        key_id: Option<&'a str>,
+    },
+    Revoke {
+        key_id: &'a str,
+        reason: &'a str,
+        message: Option<&'a str>,
+    },
+    Rotate {
+        old_key_id: &'a str,
+        name: Option<&'a str>,
+    },
+}
+
+fn compute_key_id(public_key_bytes: &[u8]) -> String {
+    let hash = Sha256::digest(public_key_bytes);
+    let encoded = BASE64.encode(hash);
+    format!("SHA256:{encoded}")
+}
+
+pub async fn run(action: KeyAction<'_>, registry: Option<&str>) -> Result<(), AppError> {
+    match action {
+        KeyAction::Generate { name } => generate(name),
+        KeyAction::List { local } => list(registry, local).await,
+        KeyAction::Register { name, key_id } => register(registry, name, key_id).await,
+        KeyAction::Revoke {
+            key_id,
+            reason,
+            message,
+        } => revoke(registry, key_id, reason, message).await,
+        KeyAction::Rotate { old_key_id, name } => rotate(registry, old_key_id, name).await,
+    }
+}
+
+fn generate(name: &str) -> Result<(), AppError> {
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let public_key = signing_key.verifying_key();
+
+    let public_key_b64 = BASE64.encode(public_key.as_bytes());
+    let private_key_b64 = BASE64.encode(signing_key.to_bytes());
+    let key_id = compute_key_id(public_key.as_bytes());
+
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+    let stored = keys::StoredKey {
+        key_id: key_id.clone(),
+        name: name.to_string(),
+        public_key: public_key_b64.clone(),
+        private_key: private_key_b64,
+        created_at: now,
+    };
+    keys::save(&stored)?;
+
+    display::success(&format!("Generated Ed25519 signing key: {key_id}"));
+    display::label_value("Name", name);
+    display::label_value("Public key", &public_key_b64);
+    display::info("\nPrivate key stored in ~/.qpm/keys/");
+    display::info("Register with the registry: qpm key register");
+
+    Ok(())
+}
+
+async fn list(registry: Option<&str>, local: bool) -> Result<(), AppError> {
+    if local {
+        let local_keys = keys::list_local()?;
+        if local_keys.is_empty() {
+            display::info(
+                "No local keys found. Generate one with: qpm key generate --name <name>",
+            );
+            return Ok(());
+        }
+        println!("{:<48}  {:<20}  CREATED", "KEY ID", "NAME");
+        println!("{}", "-".repeat(84));
+        for key in &local_keys {
+            println!("{:<48}  {:<20}  {}", key.key_id, key.name, key.created_at);
+        }
+        display::info(&format!("\n{} local key(s)", local_keys.len()));
+        return Ok(());
+    }
+
+    let client = ApiClient::new(registry)?;
+    let resp = client.list_keys().await?;
+
+    if resp.keys.is_empty() {
+        display::info("No signing keys registered. Generate and register one:");
+        display::info("  qpm key generate --name <name>");
+        display::info("  qpm key register");
+        return Ok(());
+    }
+
+    println!(
+        "{:<48}  {:<20}  {:<10}  CREATED",
+        "KEY ID", "NAME", "STATUS"
+    );
+    println!("{}", "-".repeat(96));
+    for key in &resp.keys {
+        println!(
+            "{:<48}  {:<20}  {:<10}  {}",
+            key.key_id, key.name, key.status, key.created_at
+        );
+    }
+    display::info(&format!("\n{} registered key(s)", resp.keys.len()));
+
+    Ok(())
+}
+
+async fn register(
+    registry: Option<&str>,
+    name: Option<&str>,
+    key_id: Option<&str>,
+) -> Result<(), AppError> {
+    let local_keys = keys::list_local()?;
+    if local_keys.is_empty() {
+        return Err(AppError::Other(
+            "No local keys found. Generate one first: qpm key generate --name <name>".into(),
+        ));
+    }
+
+    let stored = if let Some(kid) = key_id {
+        keys::load(kid)?.ok_or_else(|| AppError::Other(format!("Local key not found: {kid}")))?
+    } else if local_keys.len() == 1 {
+        local_keys
+            .into_iter()
+            .next()
+            .expect("checked len == 1 above")
+    } else {
+        let items: Vec<String> = local_keys
+            .iter()
+            .map(|k| format!("{} ({})", k.key_id, k.name))
+            .collect();
+        let selection = dialoguer::Select::new()
+            .with_prompt("Select a key to register")
+            .items(&items)
+            .interact()
+            .map_err(|e| AppError::Other(format!("Input error: {e}")))?;
+        local_keys
+            .into_iter()
+            .nth(selection)
+            .expect("selection within bounds")
+    };
+
+    let key_name = name.unwrap_or(&stored.name);
+
+    let client = ApiClient::new(registry)?;
+    let resp = client.register_key(&stored.public_key, key_name).await?;
+
+    display::success(&format!("Registered signing key: {}", resp.key_id));
+    display::label_value("Name", &resp.name);
+    display::label_value("Algorithm", &resp.algorithm);
+    display::label_value("Created", &resp.created_at);
+
+    Ok(())
+}
+
+async fn revoke(
+    registry: Option<&str>,
+    key_id: &str,
+    reason: &str,
+    message: Option<&str>,
+) -> Result<(), AppError> {
+    let client = ApiClient::new(registry)?;
+    let resp = client.revoke_key(key_id, reason, message).await?;
+
+    display::success(&format!("Revoked signing key: {}", resp.key_id));
+    display::label_value("Status", &resp.status);
+    display::label_value("Revoked at", &resp.revoked_at);
+
+    if keys::delete(key_id)? {
+        display::info("Removed local key file");
+    }
+
+    Ok(())
+}
+
+async fn rotate(
+    registry: Option<&str>,
+    old_key_id: &str,
+    name: Option<&str>,
+) -> Result<(), AppError> {
+    let old_key = keys::load(old_key_id)?.ok_or_else(|| {
+        AppError::Other(format!(
+            "Local key not found: {old_key_id}. Rotation requires the old private key to sign an attestation."
+        ))
+    })?;
+
+    let old_private_bytes = BASE64
+        .decode(&old_key.private_key)
+        .map_err(|e| AppError::Other(format!("Failed to decode old private key: {e}")))?;
+    let old_private_bytes: [u8; 32] = old_private_bytes
+        .try_into()
+        .map_err(|_| AppError::Other("Invalid private key length".into()))?;
+    let old_signing_key = SigningKey::from_bytes(&old_private_bytes);
+
+    let new_signing_key = SigningKey::generate(&mut OsRng);
+    let new_public_key = new_signing_key.verifying_key();
+    let new_public_key_b64 = BASE64.encode(new_public_key.as_bytes());
+    let new_private_key_b64 = BASE64.encode(new_signing_key.to_bytes());
+    let new_key_id = compute_key_id(new_public_key.as_bytes());
+
+    // Old key signs over new public key bytes as attestation of rotation
+    let attestation_sig = old_signing_key.sign(new_public_key.as_bytes());
+    let attestation_b64 = BASE64.encode(attestation_sig.to_bytes());
+
+    let client = ApiClient::new(registry)?;
+    let resp = client
+        .rotate_key(old_key_id, &new_public_key_b64, &attestation_b64)
+        .await?;
+
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let key_name = name.unwrap_or(&old_key.name);
+    let stored = keys::StoredKey {
+        key_id: new_key_id,
+        name: key_name.to_string(),
+        public_key: new_public_key_b64,
+        private_key: new_private_key_b64,
+        created_at: now,
+    };
+    keys::save(&stored)?;
+    keys::delete(old_key_id)?;
+
+    display::success("Key rotated successfully");
+    display::label_value("Old key", &resp.old_key_id);
+    display::label_value("New key", &resp.new_key_id);
+    display::label_value("Rotated at", &resp.rotated_at);
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_key_id() {
+        let key_id = compute_key_id(b"test-public-key");
+        assert!(key_id.starts_with("SHA256:"));
+        assert!(key_id.len() > 10);
+    }
+
+    #[test]
+    fn test_generate_and_compute_key_id_deterministic() {
+        let id1 = compute_key_id(b"same-bytes");
+        let id2 = compute_key_id(b"same-bytes");
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn test_compute_key_id_different_inputs() {
+        let id1 = compute_key_id(b"key-a");
+        let id2 = compute_key_id(b"key-b");
+        assert_ne!(id1, id2);
+    }
+}

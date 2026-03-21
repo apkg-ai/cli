@@ -1,0 +1,84 @@
+use console::Style;
+
+use crate::api::client::ApiClient;
+use crate::error::AppError;
+use crate::util::display;
+
+pub struct SearchOptions<'a> {
+    pub query: &'a str,
+    pub limit: u32,
+    pub json: bool,
+    pub registry: Option<&'a str>,
+}
+
+pub async fn run(opts: SearchOptions<'_>) -> Result<(), AppError> {
+    let client = ApiClient::new(opts.registry)?;
+
+    let resp = match client.search(opts.query, opts.limit, 0).await {
+        Ok(resp) => resp,
+        Err(AppError::Network(_)) => {
+            display::warn("Search service is unavailable.");
+            display::info("Try searching at https://qpm.dev/search instead.");
+            return Ok(());
+        }
+        Err(e) => return Err(e),
+    };
+
+    if opts.json {
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+            "results": resp.results.iter().map(|r| serde_json::json!({
+                "name": r.name,
+                "version": r.version,
+                "description": r.description,
+                "type": r.package_type,
+            })).collect::<Vec<_>>(),
+            "total": resp.total,
+        }))?);
+        return Ok(());
+    }
+
+    if resp.results.is_empty() {
+        display::info(&format!("No packages found for \"{}\".", opts.query));
+        return Ok(());
+    }
+
+    println!(
+        "Found {} package{}:\n",
+        resp.total,
+        if resp.total == 1 { "" } else { "s" }
+    );
+
+    let name_style = Style::new().bold().cyan();
+    let version_style = Style::new().green();
+    let dim_style = Style::new().dim();
+
+    for result in &resp.results {
+        let version_str = result
+            .version
+            .as_deref()
+            .unwrap_or("?.?.?");
+        let desc = result
+            .description
+            .as_deref()
+            .unwrap_or("");
+        let type_str = result
+            .package_type
+            .as_deref()
+            .map(|t| format!(" [{t}]"))
+            .unwrap_or_default();
+
+        println!(
+            "  {} {} {}{}",
+            name_style.apply_to(&result.name),
+            version_style.apply_to(version_str),
+            dim_style.apply_to(type_str),
+            if desc.is_empty() {
+                String::new()
+            } else {
+                format!("\n    {}", dim_style.apply_to(desc))
+            }
+        );
+    }
+
+    Ok(())
+}

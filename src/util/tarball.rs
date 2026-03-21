@@ -1,0 +1,155 @@
+use std::fs;
+use std::io::Write;
+use std::path::Path;
+
+use flate2::Compression;
+use flate2::write::GzEncoder;
+use glob_match::glob_match;
+
+use crate::error::AppError;
+
+const DEFAULT_IGNORE: &[&str] = &[
+    ".git/**",
+    "node_modules/**",
+    "target/**",
+    "*.tgz",
+    ".qpmignore",
+    ".DS_Store",
+    "qpm_packages/**",
+];
+
+/// Create a `.tgz` tarball from the given directory, returning the bytes.
+pub fn create_tarball(dir: &Path) -> Result<Vec<u8>, AppError> {
+    let ignore_patterns = load_ignore_patterns(dir);
+
+    let buf = Vec::new();
+    let enc = GzEncoder::new(buf, Compression::default());
+    let mut archive = tar::Builder::new(enc);
+
+    add_dir_recursive(&mut archive, dir, dir, &ignore_patterns)?;
+
+    let enc = archive.into_inner().map_err(|e| {
+        AppError::Other(format!("Failed to finalize tarball: {e}"))
+    })?;
+    let compressed = enc.finish().map_err(|e| {
+        AppError::Other(format!("Failed to compress tarball: {e}"))
+    })?;
+
+    Ok(compressed)
+}
+
+/// Write tarball bytes to a file.
+pub fn write_tarball(path: &Path, data: &[u8]) -> Result<(), AppError> {
+    let mut file = fs::File::create(path)?;
+    file.write_all(data)?;
+    Ok(())
+}
+
+/// Extract a `.tgz` tarball into the given directory.
+pub fn extract_tarball(data: &[u8], dest: &Path) -> Result<(), AppError> {
+    use flate2::read::GzDecoder;
+    use std::io::Cursor;
+
+    let cursor = Cursor::new(data);
+    let decoder = GzDecoder::new(cursor);
+    let mut archive = tar::Archive::new(decoder);
+
+    fs::create_dir_all(dest)?;
+    archive.unpack(dest).map_err(|e| {
+        AppError::Other(format!("Failed to extract tarball: {e}"))
+    })?;
+
+    Ok(())
+}
+
+fn load_ignore_patterns(dir: &Path) -> Vec<String> {
+    let ignore_file = dir.join(".qpmignore");
+    if let Ok(content) = fs::read_to_string(ignore_file) {
+        content
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(std::string::ToString::to_string)
+            .collect()
+    } else {
+        DEFAULT_IGNORE.iter().map(std::string::ToString::to_string).collect()
+    }
+}
+
+fn should_ignore(relative_path: &str, patterns: &[String]) -> bool {
+    for pattern in patterns {
+        if glob_match(pattern, relative_path) {
+            return true;
+        }
+    }
+    false
+}
+
+fn add_dir_recursive<W: Write>(
+    archive: &mut tar::Builder<W>,
+    base: &Path,
+    current: &Path,
+    ignore_patterns: &[String],
+) -> Result<(), AppError> {
+    let entries = fs::read_dir(current).map_err(|e| {
+        AppError::Other(format!("Failed to read directory {}: {e}", current.display()))
+    })?;
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let relative = path
+            .strip_prefix(base)
+            .map_err(|e| AppError::Other(format!("Path strip error: {e}")))?;
+        let relative_str = relative.to_string_lossy().to_string();
+
+        if should_ignore(&relative_str, ignore_patterns) {
+            continue;
+        }
+
+        let metadata = entry.metadata()?;
+        if metadata.is_dir() {
+            add_dir_recursive(archive, base, &path, ignore_patterns)?;
+        } else if metadata.is_file() {
+            archive.append_path_with_name(&path, &relative_str).map_err(|e| {
+                AppError::Other(format!("Failed to add {relative_str} to tarball: {e}"))
+            })?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_should_ignore_default_patterns() {
+        let patterns: Vec<String> = DEFAULT_IGNORE.iter().map(std::string::ToString::to_string).collect();
+        assert!(should_ignore(".git/config", &patterns));
+        assert!(should_ignore("node_modules/foo/bar.js", &patterns));
+        assert!(should_ignore("target/debug/qpm", &patterns));
+        assert!(should_ignore("package-0.1.0.tgz", &patterns));
+        assert!(!should_ignore("src/main.rs", &patterns));
+        assert!(!should_ignore("qpm.json", &patterns));
+    }
+
+    #[test]
+    fn test_create_and_extract_tarball() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+
+        fs::write(dir.join("qpm.json"), r#"{"name":"test"}"#).unwrap();
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(dir.join("src/main.rs"), "fn main() {}").unwrap();
+
+        let tarball = create_tarball(dir).unwrap();
+        assert!(!tarball.is_empty());
+
+        let extract_dir = tmp.path().join("extracted");
+        extract_tarball(&tarball, &extract_dir).unwrap();
+        assert!(extract_dir.join("qpm.json").exists());
+        assert!(extract_dir.join("src/main.rs").exists());
+    }
+}

@@ -5,8 +5,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::api::client::ApiClient;
 use crate::api::types::PackageMetadata;
-use crate::config::{cache, lockfile, manifest};
 use crate::config::lockfile::{LockedPackage, Lockfile, LOCKFILE_VERSION};
+use crate::config::{cache, lockfile, manifest};
 use crate::error::AppError;
 use crate::setup;
 use crate::util::package::DepCategory;
@@ -45,7 +45,7 @@ pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
     let version_meta = metadata.versions.get(&version);
     let (tarball_url, expected_integrity, pkg_type) = extract_dist_info(version_meta);
 
-    let install_dir = cwd.join("qpm_packages").join(&name);
+    let install_dir = cwd.join("apkg_packages").join(&name);
 
     let (data_len, computed) = if expected_integrity.is_empty() {
         // No dist info — download directly
@@ -77,10 +77,26 @@ pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
             tarball::extract_tarball(&entry.data, &install_dir)?;
             (entry.data.len(), entry.integrity)
         } else {
-            download_and_extract(&client, &name, &version, &expected_integrity, &install_dir, &pb).await?
+            download_and_extract(
+                &client,
+                &name,
+                &version,
+                &expected_integrity,
+                &install_dir,
+                &pb,
+            )
+            .await?
         }
     } else {
-        download_and_extract(&client, &name, &version, &expected_integrity, &install_dir, &pb).await?
+        download_and_extract(
+            &client,
+            &name,
+            &version,
+            &expected_integrity,
+            &install_dir,
+            &pb,
+        )
+        .await?
     };
 
     pb.finish_and_clear();

@@ -3,7 +3,7 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 fn cmd() -> Command {
-    Command::cargo_bin("qpm").unwrap()
+    Command::cargo_bin("apkg").unwrap()
 }
 
 #[test]
@@ -12,7 +12,7 @@ fn test_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("qpm 0.1.0"));
+        .stdout(predicate::str::contains("apkg 0.1.0"));
 }
 
 #[test]
@@ -30,7 +30,7 @@ fn test_init_help() {
         .args(["init", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("qpm.json"));
+        .stdout(predicate::str::contains("apkg.json"));
 }
 
 #[test]
@@ -110,10 +110,7 @@ fn test_init_creates_manifest() {
     // Non-interactive init would need --yes or similar, but we can test
     // that it fails gracefully when not interactive (no TTY)
     // The dialoguer prompts will fail in non-TTY context
-    let result = cmd()
-        .arg("init")
-        .current_dir(tmp.path())
-        .assert();
+    let result = cmd().arg("init").current_dir(tmp.path()).assert();
     // In CI/non-TTY, dialoguer will error out — that's expected
     // Just verify it doesn't panic
     let _ = result;
@@ -130,7 +127,7 @@ fn test_pack_with_manifest() {
   "license": "MIT"
 }
 "#;
-    std::fs::write(tmp.path().join("qpm.json"), manifest).unwrap();
+    std::fs::write(tmp.path().join("apkg.json"), manifest).unwrap();
     std::fs::write(tmp.path().join("index.js"), "console.log('hello')").unwrap();
 
     cmd()
@@ -231,7 +228,7 @@ fn test_remove_not_in_deps() {
   "license": "MIT"
 }
 "#;
-    std::fs::write(tmp.path().join("qpm.json"), manifest).unwrap();
+    std::fs::write(tmp.path().join("apkg.json"), manifest).unwrap();
     cmd()
         .args(["remove", "nonexistent-pkg"])
         .current_dir(tmp.path())
@@ -255,10 +252,10 @@ fn test_remove_from_deps() {
   }
 }
 "#;
-    std::fs::write(tmp.path().join("qpm.json"), manifest).unwrap();
+    std::fs::write(tmp.path().join("apkg.json"), manifest).unwrap();
 
     // Create fake installed package dir
-    let pkg_dir = tmp.path().join("qpm_packages").join("my-dep");
+    let pkg_dir = tmp.path().join("apkg_packages").join("my-dep");
     std::fs::create_dir_all(&pkg_dir).unwrap();
     std::fs::write(pkg_dir.join("index.js"), "").unwrap();
 
@@ -271,7 +268,7 @@ fn test_remove_from_deps() {
 
     // Verify manifest updated
     let updated: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(tmp.path().join("qpm.json")).unwrap())
+        serde_json::from_str(&std::fs::read_to_string(tmp.path().join("apkg.json")).unwrap())
             .unwrap();
     let deps = updated["dependencies"].as_object().unwrap();
     assert!(!deps.contains_key("my-dep"));
@@ -335,7 +332,7 @@ fn test_dist_tag_rm_no_auth() {
 fn test_dist_tag_add_missing_version() {
     let tmp = TempDir::new().unwrap();
     // Create fake credentials so we pass auth check and hit version validation
-    let config_dir = tmp.path().join(".config").join("qpm");
+    let config_dir = tmp.path().join(".config").join("apkg");
     std::fs::create_dir_all(&config_dir).unwrap();
     std::fs::write(
         config_dir.join("credentials.json"),
@@ -428,7 +425,7 @@ fn test_install_no_args_empty_deps() {
   "license": "MIT"
 }
 "#;
-    std::fs::write(tmp.path().join("qpm.json"), manifest).unwrap();
+    std::fs::write(tmp.path().join("apkg.json"), manifest).unwrap();
     cmd()
         .arg("install")
         .current_dir(tmp.path())
@@ -451,7 +448,7 @@ fn test_install_frozen_no_lockfile() {
   }
 }
 "#;
-    std::fs::write(tmp.path().join("qpm.json"), manifest).unwrap();
+    std::fs::write(tmp.path().join("apkg.json"), manifest).unwrap();
     cmd()
         .args(["install", "--frozen-lockfile"])
         .current_dir(tmp.path())
@@ -493,7 +490,7 @@ fn test_cache_clean_empty() {
     let cache_dir = tmp.path().join("empty-cache");
     cmd()
         .args(["cache", "clean"])
-        .env("QPM_CACHE_DIR", &cache_dir)
+        .env("APKG_CACHE_DIR", &cache_dir)
         .assert()
         .success()
         .stderr(predicate::str::contains("already empty"));
@@ -505,7 +502,7 @@ fn test_cache_list_empty() {
     let cache_dir = tmp.path().join("empty-cache");
     cmd()
         .args(["cache", "list"])
-        .env("QPM_CACHE_DIR", &cache_dir)
+        .env("APKG_CACHE_DIR", &cache_dir)
         .assert()
         .success()
         .stderr(predicate::str::contains("Cache is empty"));
@@ -517,7 +514,7 @@ fn test_cache_verify_empty() {
     let cache_dir = tmp.path().join("empty-cache");
     cmd()
         .args(["cache", "verify"])
-        .env("QPM_CACHE_DIR", &cache_dir)
+        .env("APKG_CACHE_DIR", &cache_dir)
         .assert()
         .success()
         .stderr(predicate::str::contains("nothing to verify"));
@@ -580,7 +577,7 @@ fn test_link_register_and_unregister() {
   "license": "MIT"
 }
 "#;
-    std::fs::write(tmp.path().join("qpm.json"), manifest).unwrap();
+    std::fs::write(tmp.path().join("apkg.json"), manifest).unwrap();
 
     // Register
     cmd()
@@ -592,8 +589,11 @@ fn test_link_register_and_unregister() {
         .stderr(predicate::str::contains("Linked my-lib globally"));
 
     // Verify file exists in global store
-    let link_file = home.path().join(".qpm/links/my-lib.json");
-    assert!(link_file.exists(), "link entry should exist in global store");
+    let link_file = home.path().join(".apkg/links/my-lib.json");
+    assert!(
+        link_file.exists(),
+        "link entry should exist in global store"
+    );
 
     // Unregister
     cmd()
@@ -602,7 +602,9 @@ fn test_link_register_and_unregister() {
         .env("HOME", home.path())
         .assert()
         .success()
-        .stderr(predicate::str::contains("Unlinked my-lib from global store"));
+        .stderr(predicate::str::contains(
+            "Unlinked my-lib from global store",
+        ));
 
     assert!(!link_file.exists(), "link entry should be removed");
 }
@@ -621,7 +623,7 @@ fn test_link_direct_path() {
   "license": "MIT"
 }
 "#;
-    std::fs::write(lib_dir.path().join("qpm.json"), lib_manifest).unwrap();
+    std::fs::write(lib_dir.path().join("apkg.json"), lib_manifest).unwrap();
 
     let app_manifest = r#"{
   "name": "my-app",
@@ -631,7 +633,7 @@ fn test_link_direct_path() {
   "license": "MIT"
 }
 "#;
-    std::fs::write(app_dir.path().join("qpm.json"), app_manifest).unwrap();
+    std::fs::write(app_dir.path().join("apkg.json"), app_manifest).unwrap();
 
     // Link by path
     cmd()
@@ -642,7 +644,7 @@ fn test_link_direct_path() {
         .success()
         .stderr(predicate::str::contains("Linked my-lib"));
 
-    let symlink_path = app_dir.path().join("qpm_packages/my-lib");
+    let symlink_path = app_dir.path().join("apkg_packages/my-lib");
     let meta = std::fs::symlink_metadata(&symlink_path).expect("symlink should exist");
     assert!(meta.file_type().is_symlink(), "should be a symlink");
 }
@@ -709,7 +711,7 @@ fn test_update_empty_deps() {
   "license": "MIT"
 }
 "#;
-    std::fs::write(tmp.path().join("qpm.json"), manifest).unwrap();
+    std::fs::write(tmp.path().join("apkg.json"), manifest).unwrap();
     cmd()
         .arg("update")
         .current_dir(tmp.path())
@@ -732,7 +734,7 @@ fn test_update_package_not_in_deps() {
   }
 }
 "#;
-    std::fs::write(tmp.path().join("qpm.json"), manifest).unwrap();
+    std::fs::write(tmp.path().join("apkg.json"), manifest).unwrap();
     cmd()
         .args(["update", "nonexistent-pkg"])
         .current_dir(tmp.path())
@@ -755,7 +757,7 @@ fn test_update_dry_run_flag_accepted() {
   }
 }
 "#;
-    std::fs::write(tmp.path().join("qpm.json"), manifest).unwrap();
+    std::fs::write(tmp.path().join("apkg.json"), manifest).unwrap();
     // --dry-run parses correctly; network error is expected since no registry is reachable
     cmd()
         .args(["update", "--dry-run"])
@@ -778,7 +780,7 @@ fn test_update_latest_flag_accepted() {
   }
 }
 "#;
-    std::fs::write(tmp.path().join("qpm.json"), manifest).unwrap();
+    std::fs::write(tmp.path().join("apkg.json"), manifest).unwrap();
     // --latest parses correctly; network error is expected since no registry is reachable
     cmd()
         .args(["update", "--latest"])
@@ -841,7 +843,7 @@ fn test_verify_package_not_in_lockfile() {
   "packages": {
     "foo@1.0.0": {
       "version": "1.0.0",
-      "resolved": "https://registry.qpm.dev/api/v1/packages/foo/1.0.0/tarball",
+      "resolved": "https://registry.apkg.ai/api/v1/packages/foo/1.0.0/tarball",
       "integrity": "sha256-abc",
       "dependencies": {},
       "peerDependencies": {},
@@ -851,7 +853,7 @@ fn test_verify_package_not_in_lockfile() {
   }
 }
 "#;
-    std::fs::write(tmp.path().join("qpm-lock.json"), lockfile).unwrap();
+    std::fs::write(tmp.path().join("apkg-lock.json"), lockfile).unwrap();
     cmd()
         .args(["verify", "nonexistent-pkg"])
         .current_dir(tmp.path())
@@ -878,7 +880,7 @@ fn test_completions_bash() {
         .args(["completions", "bash"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("qpm"));
+        .stdout(predicate::str::contains("apkg"));
 }
 
 #[test]
@@ -887,7 +889,7 @@ fn test_completions_zsh() {
         .args(["completions", "zsh"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("qpm"));
+        .stdout(predicate::str::contains("apkg"));
 }
 
 #[test]
@@ -896,7 +898,7 @@ fn test_completions_fish() {
         .args(["completions", "fish"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("qpm"));
+        .stdout(predicate::str::contains("apkg"));
 }
 
 #[test]
@@ -909,7 +911,7 @@ fn test_verify_empty_lockfile() {
   "packages": {}
 }
 "#;
-    std::fs::write(tmp.path().join("qpm-lock.json"), lockfile).unwrap();
+    std::fs::write(tmp.path().join("apkg-lock.json"), lockfile).unwrap();
     cmd()
         .arg("verify")
         .current_dir(tmp.path())

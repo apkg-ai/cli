@@ -18,22 +18,25 @@ pub async fn run(opts: SearchOptions<'_>) -> Result<(), AppError> {
         Ok(resp) => resp,
         Err(AppError::Network(_)) => {
             display::warn("Search service is unavailable.");
-            display::info("Try searching at https://qpm.dev/search instead.");
+            display::info("Try searching at https://apkg.ai/search instead.");
             return Ok(());
         }
         Err(e) => return Err(e),
     };
 
     if opts.json {
-        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-            "results": resp.results.iter().map(|r| serde_json::json!({
-                "name": r.name,
-                "version": r.version,
-                "description": r.description,
-                "type": r.package_type,
-            })).collect::<Vec<_>>(),
-            "total": resp.total,
-        }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "results": resp.results.iter().map(|r| serde_json::json!({
+                    "name": r.name,
+                    "version": r.version,
+                    "description": r.description,
+                    "type": r.package_type,
+                })).collect::<Vec<_>>(),
+                "total": resp.total,
+            }))?
+        );
         return Ok(());
     }
 
@@ -53,14 +56,8 @@ pub async fn run(opts: SearchOptions<'_>) -> Result<(), AppError> {
     let dim_style = Style::new().dim();
 
     for result in &resp.results {
-        let version_str = result
-            .version
-            .as_deref()
-            .unwrap_or("?.?.?");
-        let desc = result
-            .description
-            .as_deref()
-            .unwrap_or("");
+        let version_str = result.version.as_deref().unwrap_or("?.?.?");
+        let desc = result.description.as_deref().unwrap_or("");
         let type_str = result
             .package_type
             .as_deref()

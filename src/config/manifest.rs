@@ -102,19 +102,17 @@ pub struct HookPermissions {
     pub env: Option<Vec<String>>,
 }
 
-pub const MANIFEST_FILE: &str = "qpm.json";
+pub const MANIFEST_FILE: &str = "apkg.json";
 
 pub fn load(dir: &Path) -> Result<Manifest, AppError> {
     let path = dir.join(MANIFEST_FILE);
     if !path.exists() {
         return Err(AppError::ManifestNotFound);
     }
-    let content = fs::read_to_string(&path).map_err(|e| {
-        AppError::Manifest(format!("Failed to read {MANIFEST_FILE}: {e}"))
-    })?;
-    let manifest: Manifest = serde_json::from_str(&content).map_err(|e| {
-        AppError::Manifest(format!("Invalid {MANIFEST_FILE}: {e}"))
-    })?;
+    let content = fs::read_to_string(&path)
+        .map_err(|e| AppError::Manifest(format!("Failed to read {MANIFEST_FILE}: {e}")))?;
+    let manifest: Manifest = serde_json::from_str(&content)
+        .map_err(|e| AppError::Manifest(format!("Invalid {MANIFEST_FILE}: {e}")))?;
     Ok(manifest)
 }
 

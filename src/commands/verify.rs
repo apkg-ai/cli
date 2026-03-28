@@ -80,14 +80,13 @@ pub async fn run(opts: VerifyOptions<'_>) -> Result<(), AppError> {
     let cwd = env::current_dir()?;
 
     let lockfile = lockfile::load(&cwd)?.ok_or_else(|| {
-        AppError::Other("No lockfile found. Run `qpm install` first.".to_string())
+        AppError::Other("No lockfile found. Run `apkg install` first.".to_string())
     })?;
 
     // Determine which packages to verify
     let targets: Vec<(&str, &str, &lockfile::LockedPackage)> = if let Some(name) = opts.package {
-        let entry = lockfile::find_by_name(&lockfile, name).ok_or_else(|| {
-            AppError::Other(format!("Package \"{name}\" not found in lockfile."))
-        })?;
+        let entry = lockfile::find_by_name(&lockfile, name)
+            .ok_or_else(|| AppError::Other(format!("Package \"{name}\" not found in lockfile.")))?;
         // Recover the version from the entry
         vec![(name, entry.version.as_str(), entry)]
     } else {
@@ -233,8 +232,7 @@ async fn verify_signature(
     // Try to verify against registry counter-signature
     for sig in &dist.signatures {
         if let Some(registry_key) = registry_keys.get(&sig.key_id) {
-            let Ok(pubkey_bytes) =
-                crypto_verify::extract_ed25519_pubkey(&registry_key.public_key)
+            let Ok(pubkey_bytes) = crypto_verify::extract_ed25519_pubkey(&registry_key.public_key)
             else {
                 continue;
             };

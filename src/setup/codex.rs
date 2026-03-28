@@ -2,36 +2,35 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use super::{config_file_stem, resolve_system_prompt, PackageInfo};
 use crate::config::manifest::PackageType;
 
-use super::{config_file_stem, resolve_system_prompt, PackageInfo};
-
-/// Generate and write a Cursor rule file for the given package.
-pub fn setup_cursor(
+/// Generate and write a Codex SKILL.md for the given package.
+pub fn setup_codex(
     project_root: &Path,
     install_dir: &Path,
     info: &PackageInfo,
 ) -> Result<PathBuf, String> {
-    let content = generate_cursor_rule(install_dir, info);
+    let content = generate_codex_skill_md(install_dir, info);
     let stem = config_file_stem(&info.name);
-    let type_dir = info.package_type.dir_name();
-    let target_dir = project_root.join(".cursor").join(type_dir);
+    let target_dir = project_root.join(".codex").join("skills").join(&stem);
     fs::create_dir_all(&target_dir)
-        .map_err(|e| format!("Failed to create .cursor/{type_dir}/: {e}"))?;
+        .map_err(|e| format!("Failed to create .codex/skills/{stem}/: {e}"))?;
 
-    let path = target_dir.join(format!("{stem}.mdc"));
+    let path = target_dir.join("SKILL.md");
     fs::write(&path, content).map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
     Ok(path)
 }
 
-fn generate_cursor_rule(install_dir: &Path, info: &PackageInfo) -> String {
+fn generate_codex_skill_md(install_dir: &Path, info: &PackageInfo) -> String {
     let mut out = String::new();
 
-    // Frontmatter
+    // YAML frontmatter
     let desc = info.description.replace('"', "'");
+    let stem = config_file_stem(&info.name);
     let _ = write!(
         out,
-        "---\ndescription: \"{name} — {desc}\"\nalwaysApply: false\n---\n\n",
+        "---\nname: {stem}\ndescription: \"{name} — {desc}\"\n---\n\n",
         name = info.name,
     );
 
@@ -153,11 +152,11 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_cursor_rule_skill() {
+    fn test_generate_codex_skill_md_skill() {
         let tmp = TempDir::new().unwrap();
-        let content = generate_cursor_rule(tmp.path(), &skill_info());
+        let content = generate_codex_skill_md(tmp.path(), &skill_info());
+        assert!(content.contains("name: acme--code-reviewer"));
         assert!(content.contains("description: \"@acme/code-reviewer"));
-        assert!(content.contains("alwaysApply: false"));
         assert!(content.contains("# @acme/code-reviewer (skill)"));
         assert!(content.contains("- code-review"));
         assert!(content.contains("- bug-detection"));
@@ -165,9 +164,10 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_cursor_rule_agent() {
+    fn test_generate_codex_skill_md_agent() {
         let tmp = TempDir::new().unwrap();
-        let content = generate_cursor_rule(tmp.path(), &agent_info());
+        let content = generate_codex_skill_md(tmp.path(), &agent_info());
+        assert!(content.contains("name: acme--research-agent"));
         assert!(content.contains("# @acme/research-agent (agent)"));
         assert!(content.contains("## System Prompt"));
         assert!(content.contains("You are a research assistant."));
@@ -177,34 +177,18 @@ mod tests {
     }
 
     #[test]
-    fn test_setup_cursor_creates_file() {
+    fn test_setup_codex_creates_file() {
         let tmp = TempDir::new().unwrap();
-        fs::create_dir(tmp.path().join(".cursor")).unwrap();
+        fs::create_dir(tmp.path().join(".codex")).unwrap();
         let install_dir = tmp.path().join("apkg_packages/@acme/code-reviewer");
         fs::create_dir_all(&install_dir).unwrap();
 
-        let path = setup_cursor(tmp.path(), &install_dir, &skill_info()).unwrap();
+        let path = setup_codex(tmp.path(), &install_dir, &skill_info()).unwrap();
         assert!(path.exists());
-        assert_eq!(path.file_name().unwrap(), "acme--code-reviewer.mdc");
-    }
-
-    #[test]
-    fn test_generate_cursor_rule_agent_with_file_prompt() {
-        let tmp = TempDir::new().unwrap();
-        let prompts_dir = tmp.path().join("prompts");
-        fs::create_dir(&prompts_dir).unwrap();
-        fs::write(
-            prompts_dir.join("system.md"),
-            "You are a specialized agent.",
-        )
-        .unwrap();
-
-        let mut info = agent_info();
-        if let Some(agent) = &mut info.agent {
-            agent.system_prompt = Some("prompts/system.md".to_string());
-        }
-
-        let content = generate_cursor_rule(tmp.path(), &info);
-        assert!(content.contains("You are a specialized agent."));
+        assert_eq!(path.file_name().unwrap(), "SKILL.md");
+        assert!(path.starts_with(
+            tmp.path()
+                .join(".codex/skills/acme--code-reviewer")
+        ));
     }
 }

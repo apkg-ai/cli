@@ -5,8 +5,8 @@ use console::Style;
 
 use crate::api::client::ApiClient;
 use crate::commands::install;
-use crate::config::{lockfile, manifest};
 use crate::config::lockfile::Lockfile;
+use crate::config::{lockfile, manifest};
 use crate::error::AppError;
 use crate::resolver;
 use crate::util::display;
@@ -53,7 +53,9 @@ pub async fn run(opts: UpdateOptions<'_>) -> Result<(), AppError> {
     let existing_lockfile = lockfile::load(&cwd)?;
 
     // Build filtered lockfile — remove targeted packages so resolver fetches fresh
-    let filtered_lockfile = existing_lockfile.as_ref().map(|lf| filter_lockfile(lf, &targets));
+    let filtered_lockfile = existing_lockfile
+        .as_ref()
+        .map(|lf| filter_lockfile(lf, &targets));
 
     // Build resolution deps — for --latest, replace targeted ranges with "*"
     let resolution_deps: BTreeMap<String, String> = deps
@@ -126,7 +128,7 @@ pub async fn run(opts: UpdateOptions<'_>) -> Result<(), AppError> {
     for change in &changes {
         if let Some(pkg) = result.packages.get(&change.name) {
             let install_dir = cwd
-                .join("qpm_packages")
+                .join("apkg_packages")
                 .join(install::safe_dir_name(&change.name));
             install::download_or_cache(
                 &client,
@@ -172,7 +174,11 @@ fn filter_lockfile(lockfile: &Lockfile, packages_to_update: &[String]) -> Lockfi
     let mut filtered = lockfile.clone();
     filtered.packages.retain(|key, _| {
         let name = if let Some(idx) = key.rfind('@') {
-            if idx > 0 { &key[..idx] } else { key }
+            if idx > 0 {
+                &key[..idx]
+            } else {
+                key
+            }
         } else {
             key
         };

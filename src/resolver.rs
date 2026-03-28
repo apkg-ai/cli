@@ -39,7 +39,9 @@ pub async fn resolve(
         if let Some(existing) = resolved.get(&name) {
             let normalized = normalize_range(&range_str);
             let req = VersionReq::parse(&normalized).map_err(|e| {
-                AppError::Other(format!("Invalid version range '{range_str}' for {name}: {e}"))
+                AppError::Other(format!(
+                    "Invalid version range '{range_str}' for {name}: {e}"
+                ))
             })?;
             let existing_ver = semver::Version::parse(&existing.version).map_err(|e| {
                 AppError::Other(format!(
@@ -58,7 +60,9 @@ pub async fn resolve(
 
         let normalized = normalize_range(&range_str);
         let req = VersionReq::parse(&normalized).map_err(|e| {
-            AppError::Other(format!("Invalid version range '{range_str}' for {name}: {e}"))
+            AppError::Other(format!(
+                "Invalid version range '{range_str}' for {name}: {e}"
+            ))
         })?;
 
         // Try lockfile seed
@@ -98,10 +102,7 @@ pub async fn resolve(
             ))
         })?;
 
-        let deps = version_meta
-            .dependencies
-            .clone()
-            .unwrap_or_default();
+        let deps = version_meta.dependencies.clone().unwrap_or_default();
 
         let pkg = ResolvedPackage {
             version: version_meta.version.clone(),
@@ -223,7 +224,10 @@ mod tests {
 
     #[test]
     fn test_resolve_best_version_picks_highest() {
-        let meta = make_metadata("pkg", &[("1.0.0", false), ("1.1.0", false), ("1.2.0", false)]);
+        let meta = make_metadata(
+            "pkg",
+            &[("1.0.0", false), ("1.1.0", false), ("1.2.0", false)],
+        );
         let req = VersionReq::parse("^1.0.0").unwrap();
         let best = resolve_best_version(&meta, &req).unwrap();
         assert_eq!(best.version, "1.2.0");

@@ -38,7 +38,7 @@ async fn run_add(
     let (name, version) = parse_package_spec(package_at_version);
     let version = version.ok_or_else(|| {
         AppError::Other(
-            "Version is required. Usage: qpm dist-tag add <pkg>@<version> <tag>".to_string(),
+            "Version is required. Usage: apkg dist-tag add <pkg>@<version> <tag>".to_string(),
         )
     })?;
 
@@ -75,7 +75,12 @@ async fn run_ls(package: &str, registry: Option<&str>) -> Result<(), AppError> {
     let version_style = Style::new().green();
 
     // Find longest tag name for alignment
-    let max_len = metadata.dist_tags.keys().map(String::len).max().unwrap_or(0);
+    let max_len = metadata
+        .dist_tags
+        .keys()
+        .map(String::len)
+        .max()
+        .unwrap_or(0);
 
     for (tag, version) in &metadata.dist_tags {
         println!(

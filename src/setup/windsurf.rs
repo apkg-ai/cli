@@ -2,36 +2,43 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use super::{config_file_stem, resolve_system_prompt, PackageInfo};
 use crate::config::manifest::PackageType;
 
-use super::{config_file_stem, resolve_system_prompt, PackageInfo};
-
-/// Generate and write a Claude Code command file for the given package.
-pub fn setup_claude(
+/// Generate and write a Windsurf rule file for the given package.
+pub fn setup_windsurf(
     project_root: &Path,
     install_dir: &Path,
     info: &PackageInfo,
 ) -> Result<PathBuf, String> {
-    let content = generate_claude_command(install_dir, info);
+    let content = generate_windsurf_rule(install_dir, info);
     let stem = config_file_stem(&info.name);
-    let type_dir = info.package_type.dir_name();
-    let target_dir = project_root.join(".claude").join(type_dir);
+    let target_dir = project_root.join(".windsurf").join("rules");
     fs::create_dir_all(&target_dir)
-        .map_err(|e| format!("Failed to create .claude/{type_dir}/: {e}"))?;
+        .map_err(|e| format!("Failed to create .windsurf/rules/: {e}"))?;
 
     let path = target_dir.join(format!("{stem}.md"));
     fs::write(&path, content).map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
     Ok(path)
 }
 
-fn generate_claude_command(install_dir: &Path, info: &PackageInfo) -> String {
+fn generate_windsurf_rule(install_dir: &Path, info: &PackageInfo) -> String {
     let mut out = String::new();
 
-    // Heading + description + type
+    // Frontmatter
+    let desc = info.description.replace('"', "'");
     let _ = write!(
         out,
-        "# {}\n\n{}\n\nType: {}\n",
-        info.name, info.description, info.package_type
+        "---\ntrigger: manual\ndescription: \"{name} — {desc}\"\n---\n\n",
+        name = info.name,
+    );
+
+    // Heading + description
+    let type_label = &info.package_type;
+    let _ = write!(
+        out,
+        "# {} ({type_label})\n\n{}\n",
+        info.name, info.description
     );
 
     match info.package_type {
@@ -42,33 +49,11 @@ fn generate_claude_command(install_dir: &Path, info: &PackageInfo) -> String {
 
     // Entry point
     if let Some(main) = &info.main {
-        let _ = writeln!(out, "Entry point: {}/{main}", install_dir.display());
-    }
-
-    // Usage hint
-    match info.package_type {
-        PackageType::Skill => {
-            if let Some(skill) = &info.skill {
-                if !skill.capabilities.is_empty() {
-                    let caps = skill.capabilities.join(" or ");
-                    let _ = write!(out, "\nUse this skill when you need {caps} capabilities.\n");
-                }
-            }
-        }
-        PackageType::Agent => {
-            out.push_str(
-                "\nUse this agent for tasks described in its system prompt and tool set.\n",
-            );
-        }
-        _ => {}
+        let _ = write!(out, "\n## Entry Point\n\n`{main}`\n");
     }
 
     // Install location
-    let _ = write!(
-        out,
-        "\nThis package is installed at `{}/`.\n",
-        install_dir.display()
-    );
+    let _ = write!(out, "\nInstalled at: `{}/`\n", install_dir.display());
 
     out
 }
@@ -76,7 +61,10 @@ fn generate_claude_command(install_dir: &Path, info: &PackageInfo) -> String {
 fn write_skill_section(out: &mut String, info: &PackageInfo) {
     if let Some(skill) = &info.skill {
         if !skill.capabilities.is_empty() {
-            let _ = writeln!(out, "Capabilities: {}", skill.capabilities.join(", "));
+            out.push_str("\n## Capabilities\n\n");
+            for cap in &skill.capabilities {
+                let _ = writeln!(out, "- {cap}");
+            }
         }
     }
 }
@@ -85,30 +73,29 @@ fn write_agent_section(out: &mut String, install_dir: &Path, info: &PackageInfo)
     if let Some(agent) = &info.agent {
         if let Some(prompt_val) = &agent.system_prompt {
             let resolved = resolve_system_prompt(prompt_val, install_dir);
-            let _ = write!(out, "\n## System Prompt\n\n{resolved}");
+            out.push_str("\n## System Prompt\n\n");
+            out.push_str(&resolved);
             if !resolved.ends_with('\n') {
                 out.push('\n');
             }
         }
 
         if !agent.tools.is_empty() {
-            out.push_str("\n## Available Tools\n\n");
+            out.push_str("\n## Tools\n\n");
             for tool in &agent.tools {
                 let req = if tool.required {
                     "required"
                 } else {
                     "optional"
                 };
-                let _ = writeln!(out, "- {} (`{}`) — {req}", tool.name, tool.package);
+                let _ = writeln!(out, "- **{}** (`{}`) — {req}", tool.name, tool.package);
             }
         }
 
         if !agent.model_preference.is_empty() {
-            let _ = write!(
-                out,
-                "\nPreferred models: {}\n",
-                agent.model_preference.join(", ")
-            );
+            out.push_str("\n## Model Preference\n\n");
+            out.push_str(&agent.model_preference.join(", "));
+            out.push('\n');
         }
     }
 }
@@ -156,7 +143,7 @@ mod tests {
                     },
                 ],
                 system_prompt: Some("You are a research assistant.".to_string()),
-                model_preference: vec!["claude-sonnet-4-6".to_string()],
+                model_preference: vec!["claude-sonnet-4-6".to_string(), "gpt-4o".to_string()],
                 memory: None,
                 orchestration: None,
             }),
@@ -164,44 +151,44 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_claude_command_skill() {
+    fn test_generate_windsurf_rule_skill() {
         let tmp = TempDir::new().unwrap();
-        let content = generate_claude_command(tmp.path(), &skill_info());
-        assert!(content.contains("# @acme/code-reviewer"));
-        assert!(content.contains("Type: skill"));
-        assert!(content.contains("Capabilities: code-review, bug-detection"));
-        assert!(content.contains("src/index.ts"));
-        assert!(content
-            .contains("Use this skill when you need code-review or bug-detection capabilities."));
+        let content = generate_windsurf_rule(tmp.path(), &skill_info());
+        assert!(content.contains("trigger: manual"));
+        assert!(content.contains("description: \"@acme/code-reviewer"));
+        assert!(content.contains("# @acme/code-reviewer (skill)"));
+        assert!(content.contains("- code-review"));
+        assert!(content.contains("- bug-detection"));
+        assert!(content.contains("`src/index.ts`"));
     }
 
     #[test]
-    fn test_generate_claude_command_agent() {
+    fn test_generate_windsurf_rule_agent() {
         let tmp = TempDir::new().unwrap();
-        let content = generate_claude_command(tmp.path(), &agent_info());
-        assert!(content.contains("# @acme/research-agent"));
-        assert!(content.contains("Type: agent"));
+        let content = generate_windsurf_rule(tmp.path(), &agent_info());
+        assert!(content.contains("# @acme/research-agent (agent)"));
         assert!(content.contains("## System Prompt"));
         assert!(content.contains("You are a research assistant."));
-        assert!(content.contains("web-search (`@acme/web-search`) — required"));
-        assert!(content.contains("formatter (`@acme/fmt`) — optional"));
-        assert!(content.contains("Preferred models: claude-sonnet-4-6"));
+        assert!(content.contains("**web-search** (`@acme/web-search`) — required"));
+        assert!(content.contains("**formatter** (`@acme/fmt`) — optional"));
+        assert!(content.contains("claude-sonnet-4-6, gpt-4o"));
     }
 
     #[test]
-    fn test_setup_claude_creates_file() {
+    fn test_setup_windsurf_creates_file() {
         let tmp = TempDir::new().unwrap();
-        fs::create_dir(tmp.path().join(".claude")).unwrap();
+        fs::create_dir(tmp.path().join(".windsurf")).unwrap();
         let install_dir = tmp.path().join("apkg_packages/@acme/code-reviewer");
         fs::create_dir_all(&install_dir).unwrap();
 
-        let path = setup_claude(tmp.path(), &install_dir, &skill_info()).unwrap();
+        let path = setup_windsurf(tmp.path(), &install_dir, &skill_info()).unwrap();
         assert!(path.exists());
         assert_eq!(path.file_name().unwrap(), "acme--code-reviewer.md");
+        assert!(path.starts_with(tmp.path().join(".windsurf/rules")));
     }
 
     #[test]
-    fn test_generate_claude_command_agent_with_file_prompt() {
+    fn test_setup_windsurf_agent_with_file_prompt() {
         let tmp = TempDir::new().unwrap();
         let prompts_dir = tmp.path().join("prompts");
         fs::create_dir(&prompts_dir).unwrap();
@@ -216,7 +203,7 @@ mod tests {
             agent.system_prompt = Some("prompts/system.md".to_string());
         }
 
-        let content = generate_claude_command(tmp.path(), &info);
+        let content = generate_windsurf_rule(tmp.path(), &info);
         assert!(content.contains("You are a specialized agent."));
     }
 }

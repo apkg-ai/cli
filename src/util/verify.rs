@@ -1,5 +1,5 @@
-use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
 /// SPKI/PKIX DER prefix for Ed25519 public keys (12 bytes).
@@ -54,8 +54,8 @@ pub fn verify_signature(
         .decode(signature_b64)
         .map_err(|e| format!("Invalid base64 signature: {e}"))?;
 
-    let sig = Signature::from_slice(&sig_bytes)
-        .map_err(|e| format!("Invalid signature length: {e}"))?;
+    let sig =
+        Signature::from_slice(&sig_bytes).map_err(|e| format!("Invalid signature length: {e}"))?;
 
     let verifying_key = VerifyingKey::from_bytes(public_key_bytes)
         .map_err(|e| format!("Invalid public key: {e}"))?;
@@ -69,12 +69,12 @@ pub fn verify_signature(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ed25519_dalek::{SigningKey, Signer};
+    use ed25519_dalek::{Signer, SigningKey};
 
     fn test_keypair() -> (SigningKey, VerifyingKey) {
         let secret_bytes: [u8; 32] = [
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-            24, 25, 26, 27, 28, 29, 30, 31, 32,
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+            25, 26, 27, 28, 29, 30, 31, 32,
         ];
         let signing_key = SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();
@@ -141,8 +141,8 @@ mod tests {
 
         // Use a different key
         let other_secret: [u8; 32] = [
-            99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, 81, 80, 79,
-            78, 77, 76, 75, 74, 73, 72, 71, 70, 69, 68,
+            99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, 81, 80, 79, 78,
+            77, 76, 75, 74, 73, 72, 71, 70, 69, 68,
         ];
         let other_vk = SigningKey::from_bytes(&other_secret).verifying_key();
 

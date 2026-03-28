@@ -39,12 +39,12 @@ pub struct CacheVerifyResult {
 }
 
 pub fn cache_dir() -> Result<PathBuf, AppError> {
-    if let Ok(dir) = std::env::var("QPM_CACHE_DIR") {
+    if let Ok(dir) = std::env::var("APKG_CACHE_DIR") {
         return Ok(PathBuf::from(dir));
     }
-    let home =
-        dirs::home_dir().ok_or_else(|| AppError::Other("Cannot determine home directory".into()))?;
-    Ok(home.join(".qpm").join("cache"))
+    let home = dirs::home_dir()
+        .ok_or_else(|| AppError::Other("Cannot determine home directory".into()))?;
+    Ok(home.join(".apkg").join("cache"))
 }
 
 pub fn entry_dir(name: &str, version: &str) -> Result<PathBuf, AppError> {
@@ -165,10 +165,7 @@ pub fn clean() -> Result<CacheCleanResult, AppError> {
         fs::create_dir_all(&base)?;
     }
 
-    Ok(CacheCleanResult {
-        count,
-        bytes_freed,
-    })
+    Ok(CacheCleanResult { count, bytes_freed })
 }
 
 pub fn verify() -> Result<CacheVerifyResult, AppError> {
@@ -214,7 +211,7 @@ mod tests {
 
     use super::*;
 
-    // Env vars are process-global — serialise all tests that touch QPM_CACHE_DIR.
+    // Env vars are process-global — serialise all tests that touch APKG_CACHE_DIR.
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn with_temp_cache<F>(f: F)
@@ -224,17 +221,17 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let cache_path = tmp.path().join("cache");
-        unsafe { std::env::set_var("QPM_CACHE_DIR", &cache_path) };
+        unsafe { std::env::set_var("APKG_CACHE_DIR", &cache_path) };
         f();
-        unsafe { std::env::remove_var("QPM_CACHE_DIR") };
+        unsafe { std::env::remove_var("APKG_CACHE_DIR") };
     }
 
     #[test]
     fn test_cache_dir_default() {
         let _guard = ENV_LOCK.lock().unwrap();
-        unsafe { std::env::remove_var("QPM_CACHE_DIR") };
+        unsafe { std::env::remove_var("APKG_CACHE_DIR") };
         let dir = cache_dir().unwrap();
-        assert!(dir.ends_with(".qpm/cache"));
+        assert!(dir.ends_with(".apkg/cache"));
     }
 
     #[test]
@@ -242,10 +239,10 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let custom = tmp.path().join("my-cache");
-        unsafe { std::env::set_var("QPM_CACHE_DIR", &custom) };
+        unsafe { std::env::set_var("APKG_CACHE_DIR", &custom) };
         let dir = cache_dir().unwrap();
         assert_eq!(dir, custom);
-        unsafe { std::env::remove_var("QPM_CACHE_DIR") };
+        unsafe { std::env::remove_var("APKG_CACHE_DIR") };
     }
 
     #[test]
@@ -255,7 +252,9 @@ mod tests {
             let integrity = sha256_integrity(data);
             store("my-pkg", "1.0.0", data, &integrity).unwrap();
 
-            let loaded = load("my-pkg", "1.0.0").unwrap().expect("entry should exist");
+            let loaded = load("my-pkg", "1.0.0")
+                .unwrap()
+                .expect("entry should exist");
             assert_eq!(loaded.data, data);
             assert_eq!(loaded.integrity, integrity);
             assert!(!loaded.cached_at.is_empty());

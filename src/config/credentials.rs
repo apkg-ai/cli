@@ -15,8 +15,9 @@ pub struct Credentials {
 }
 
 fn credentials_path() -> Result<PathBuf, AppError> {
-    let home = dirs::home_dir().ok_or_else(|| AppError::Other("Cannot determine home directory".into()))?;
-    Ok(home.join(".qpm").join("credentials.json"))
+    let home = dirs::home_dir()
+        .ok_or_else(|| AppError::Other("Cannot determine home directory".into()))?;
+    Ok(home.join(".apkg").join("credentials.json"))
 }
 
 pub fn load() -> Result<Option<Credentials>, AppError> {
@@ -56,12 +57,12 @@ mod tests {
     #[test]
     fn test_credentials_roundtrip() {
         let tmp = tempfile::tempdir().unwrap();
-        let creds_dir = tmp.path().join(".qpm");
+        let creds_dir = tmp.path().join(".apkg");
         fs::create_dir_all(&creds_dir).unwrap();
         let creds_file = creds_dir.join("credentials.json");
 
         let creds = Credentials {
-            registry: "https://registry.qpm.dev/api/v1".to_string(),
+            registry: "https://registry.apkg.ai/api/v1".to_string(),
             access_token: "tok_abc123".to_string(),
             refresh_token: "rt_def456".to_string(),
             username: "testuser".to_string(),
@@ -74,13 +75,13 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(&creds_file).unwrap()).unwrap();
         assert_eq!(loaded.username, "testuser");
         assert_eq!(loaded.access_token, "tok_abc123");
-        assert_eq!(loaded.registry, "https://registry.qpm.dev/api/v1");
+        assert_eq!(loaded.registry, "https://registry.apkg.ai/api/v1");
     }
 
     #[test]
     fn test_credentials_json_format() {
         let json = r#"{
-            "registry": "https://registry.qpm.dev/api/v1",
+            "registry": "https://registry.apkg.ai/api/v1",
             "accessToken": "tok_abc",
             "refreshToken": "rt_def",
             "username": "alice"
@@ -90,4 +91,3 @@ mod tests {
         assert_eq!(creds.access_token, "tok_abc");
     }
 }
-

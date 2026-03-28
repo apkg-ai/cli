@@ -5,8 +5,8 @@ use std::path::Path;
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::api::client::ApiClient;
-use crate::config::{cache, lockfile, manifest};
 use crate::config::lockfile::{LockedPackage, Lockfile, LOCKFILE_VERSION};
+use crate::config::{cache, lockfile, manifest};
 use crate::error::AppError;
 use crate::resolver;
 use crate::setup;
@@ -48,8 +48,7 @@ async fn install_all(opts: &InstallOptions<'_>) -> Result<(), AppError> {
     let pb = make_spinner();
     pb.set_message("Resolving dependencies...");
 
-    let result =
-        resolver::resolve(&client, &deps, existing_lockfile.as_ref(), &pb).await?;
+    let result = resolver::resolve(&client, &deps, existing_lockfile.as_ref(), &pb).await?;
 
     // --frozen-lockfile: verify the lockfile would not change
     if opts.frozen_lockfile {
@@ -67,9 +66,16 @@ async fn install_all(opts: &InstallOptions<'_>) -> Result<(), AppError> {
     // Install each resolved package
     let pkg_count = result.packages.len();
     for (name, pkg) in &result.packages {
-        let install_dir = cwd.join("qpm_packages").join(safe_dir_name(name));
-        download_or_cache(&client, name, &pkg.version, &pkg.integrity, &install_dir, &pb)
-            .await?;
+        let install_dir = cwd.join("apkg_packages").join(safe_dir_name(name));
+        download_or_cache(
+            &client,
+            name,
+            &pkg.version,
+            &pkg.integrity,
+            &install_dir,
+            &pb,
+        )
+        .await?;
     }
 
     // Write lockfile
@@ -104,7 +110,7 @@ async fn install_single(opts: &InstallOptions<'_>, pkg: &str) -> Result<(), AppE
     let version_meta = metadata.versions.get(&version);
     let (tarball_url, expected_integrity, pkg_type) = extract_dist_info(version_meta);
 
-    let install_dir = cwd.join("qpm_packages").join(safe_dir_name(&name));
+    let install_dir = cwd.join("apkg_packages").join(safe_dir_name(&name));
 
     let (data_len, computed) = if expected_integrity.is_empty() {
         // No dist info — download directly

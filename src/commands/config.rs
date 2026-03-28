@@ -52,12 +52,24 @@ pub fn run(action: ConfigAction<'_>) -> Result<(), AppError> {
     Ok(())
 }
 
+const KNOWN_SETUP_TOOLS: &[&str] = &["cursor", "claude-code", "windsurf", "kiro", "codex"];
+
 fn validate_key(key: &str) -> Result<(), AppError> {
     if key == "registry" || key.starts_with("services.") {
         Ok(())
+    } else if let Some(tool) = key.strip_prefix("defaultSetup.") {
+        if KNOWN_SETUP_TOOLS.contains(&tool) {
+            Ok(())
+        } else {
+            Err(AppError::Other(format!(
+                "Unknown tool: {tool}\nValid tools: {}",
+                KNOWN_SETUP_TOOLS.join(", ")
+            )))
+        }
     } else {
         Err(AppError::Other(format!(
-            "Unknown config key: {key}\nValid keys: registry, services.<name> (e.g. services.auth, services.package, services.mfa, services.search)"
+            "Unknown config key: {key}\nValid keys: registry, services.<name>, defaultSetup.<tool> ({})",
+            KNOWN_SETUP_TOOLS.join(", ")
         )))
     }
 }

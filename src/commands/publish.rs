@@ -2,14 +2,38 @@ use std::env;
 
 use indicatif::{ProgressBar, ProgressStyle};
 
+use regex_lite::Regex;
+
 use crate::api::client::ApiClient;
-use crate::config::manifest;
+use crate::config::{credentials, manifest};
 use crate::error::AppError;
 use crate::util::{display, integrity, tarball};
 
 pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
     let cwd = env::current_dir()?;
     let m = manifest::load(&cwd)?;
+
+    // Validate package name is scoped
+    let re = Regex::new(r"^@[a-z0-9-]+/[a-z0-9]([a-z0-9._-]*[a-z0-9])?$").unwrap();
+    if !re.is_match(&m.name) {
+        return Err(AppError::Other(
+            format!(
+                "Package name '{}' must be scoped: @username/name or @org/name",
+                m.name
+            ),
+        ));
+    }
+
+    // Warn if scope doesn't match the logged-in user
+    if let Ok(Some(creds)) = credentials::load() {
+        let scope = &m.name[1..m.name.find('/').unwrap()];
+        if !scope.eq_ignore_ascii_case(&creds.username) {
+            display::warn(&format!(
+                "Scope '@{}' does not match your username '{}'. Publishing will succeed only if you are a member of the '@{}' organization.",
+                scope, creds.username, scope
+            ));
+        }
+    }
 
     display::info(&format!("Publishing {}@{} ...", m.name, m.version));
 

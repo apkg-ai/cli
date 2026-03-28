@@ -3,6 +3,7 @@ use std::path::Path;
 
 use dialoguer::{Confirm, Input, Select};
 
+use crate::config::credentials;
 use crate::config::manifest::{self, Manifest, PackageType, MANIFEST_FILE};
 use crate::error::AppError;
 use crate::util::display;
@@ -26,9 +27,14 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
         .unwrap_or("my-package")
         .to_string();
 
+    let default_name = match credentials::load() {
+        Ok(Some(creds)) => format!("@{}/{}", creds.username, dir_name),
+        _ => format!("@scope/{}", dir_name),
+    };
+
     let name: String = Input::new()
-        .with_prompt("Package name")
-        .default(dir_name)
+        .with_prompt("Package name (@scope/name)")
+        .default(default_name)
         .validate_with(|input: &String| -> Result<(), String> {
             validate_package_name(input)
         })
@@ -130,10 +136,10 @@ fn validate_package_name(name: &str) -> Result<(), String> {
     if name.len() > 214 {
         return Err("Package name must be 214 characters or fewer".to_string());
     }
-    let re = regex_lite::Regex::new(r"^(@[a-z0-9-]+/)?[a-z0-9]([a-z0-9._-]*[a-z0-9])?$").unwrap();
+    let re = regex_lite::Regex::new(r"^@[a-z0-9-]+/[a-z0-9]([a-z0-9._-]*[a-z0-9])?$").unwrap();
     if !re.is_match(name) {
         return Err(
-            "Invalid name. Use lowercase letters, numbers, hyphens. Scoped: @org/name".to_string(),
+            "Package name must be scoped: @username/name or @org/name. Use lowercase letters, numbers, hyphens.".to_string(),
         );
     }
     Ok(())

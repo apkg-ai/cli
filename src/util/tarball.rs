@@ -2,8 +2,8 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
-use flate2::Compression;
 use flate2::write::GzEncoder;
+use flate2::Compression;
 use glob_match::glob_match;
 
 use crate::error::AppError;
@@ -13,9 +13,9 @@ const DEFAULT_IGNORE: &[&str] = &[
     "node_modules/**",
     "target/**",
     "*.tgz",
-    ".qpmignore",
+    ".apkgignore",
     ".DS_Store",
-    "qpm_packages/**",
+    "apkg_packages/**",
 ];
 
 /// Create a `.tgz` tarball from the given directory, returning the bytes.
@@ -28,12 +28,12 @@ pub fn create_tarball(dir: &Path) -> Result<Vec<u8>, AppError> {
 
     add_dir_recursive(&mut archive, dir, dir, &ignore_patterns)?;
 
-    let enc = archive.into_inner().map_err(|e| {
-        AppError::Other(format!("Failed to finalize tarball: {e}"))
-    })?;
-    let compressed = enc.finish().map_err(|e| {
-        AppError::Other(format!("Failed to compress tarball: {e}"))
-    })?;
+    let enc = archive
+        .into_inner()
+        .map_err(|e| AppError::Other(format!("Failed to finalize tarball: {e}")))?;
+    let compressed = enc
+        .finish()
+        .map_err(|e| AppError::Other(format!("Failed to compress tarball: {e}")))?;
 
     Ok(compressed)
 }
@@ -55,15 +55,15 @@ pub fn extract_tarball(data: &[u8], dest: &Path) -> Result<(), AppError> {
     let mut archive = tar::Archive::new(decoder);
 
     fs::create_dir_all(dest)?;
-    archive.unpack(dest).map_err(|e| {
-        AppError::Other(format!("Failed to extract tarball: {e}"))
-    })?;
+    archive
+        .unpack(dest)
+        .map_err(|e| AppError::Other(format!("Failed to extract tarball: {e}")))?;
 
     Ok(())
 }
 
 fn load_ignore_patterns(dir: &Path) -> Vec<String> {
-    let ignore_file = dir.join(".qpmignore");
+    let ignore_file = dir.join(".apkgignore");
     if let Ok(content) = fs::read_to_string(ignore_file) {
         content
             .lines()
@@ -72,7 +72,10 @@ fn load_ignore_patterns(dir: &Path) -> Vec<String> {
             .map(std::string::ToString::to_string)
             .collect()
     } else {
-        DEFAULT_IGNORE.iter().map(std::string::ToString::to_string).collect()
+        DEFAULT_IGNORE
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect()
     }
 }
 
@@ -92,7 +95,10 @@ fn add_dir_recursive<W: Write>(
     ignore_patterns: &[String],
 ) -> Result<(), AppError> {
     let entries = fs::read_dir(current).map_err(|e| {
-        AppError::Other(format!("Failed to read directory {}: {e}", current.display()))
+        AppError::Other(format!(
+            "Failed to read directory {}: {e}",
+            current.display()
+        ))
     })?;
 
     for entry in entries {
@@ -111,9 +117,11 @@ fn add_dir_recursive<W: Write>(
         if metadata.is_dir() {
             add_dir_recursive(archive, base, &path, ignore_patterns)?;
         } else if metadata.is_file() {
-            archive.append_path_with_name(&path, &relative_str).map_err(|e| {
-                AppError::Other(format!("Failed to add {relative_str} to tarball: {e}"))
-            })?;
+            archive
+                .append_path_with_name(&path, &relative_str)
+                .map_err(|e| {
+                    AppError::Other(format!("Failed to add {relative_str} to tarball: {e}"))
+                })?;
         }
     }
     Ok(())
@@ -126,13 +134,16 @@ mod tests {
 
     #[test]
     fn test_should_ignore_default_patterns() {
-        let patterns: Vec<String> = DEFAULT_IGNORE.iter().map(std::string::ToString::to_string).collect();
+        let patterns: Vec<String> = DEFAULT_IGNORE
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
         assert!(should_ignore(".git/config", &patterns));
         assert!(should_ignore("node_modules/foo/bar.js", &patterns));
-        assert!(should_ignore("target/debug/qpm", &patterns));
+        assert!(should_ignore("target/debug/apkg", &patterns));
         assert!(should_ignore("package-0.1.0.tgz", &patterns));
         assert!(!should_ignore("src/main.rs", &patterns));
-        assert!(!should_ignore("qpm.json", &patterns));
+        assert!(!should_ignore("apkg.json", &patterns));
     }
 
     #[test]
@@ -140,7 +151,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
 
-        fs::write(dir.join("qpm.json"), r#"{"name":"test"}"#).unwrap();
+        fs::write(dir.join("apkg.json"), r#"{"name":"test"}"#).unwrap();
         fs::create_dir_all(dir.join("src")).unwrap();
         fs::write(dir.join("src/main.rs"), "fn main() {}").unwrap();
 
@@ -149,7 +160,7 @@ mod tests {
 
         let extract_dir = tmp.path().join("extracted");
         extract_tarball(&tarball, &extract_dir).unwrap();
-        assert!(extract_dir.join("qpm.json").exists());
+        assert!(extract_dir.join("apkg.json").exists());
         assert!(extract_dir.join("src/main.rs").exists());
     }
 }

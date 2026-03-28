@@ -73,8 +73,8 @@ fn generate(name: &str) -> Result<(), AppError> {
     display::success(&format!("Generated Ed25519 signing key: {key_id}"));
     display::label_value("Name", name);
     display::label_value("Public key", &public_key_b64);
-    display::info("\nPrivate key stored in ~/.qpm/keys/");
-    display::info("Register with the registry: qpm key register");
+    display::info("\nPrivate key stored in ~/.apkg/keys/");
+    display::info("Register with the registry: apkg key register");
 
     Ok(())
 }
@@ -84,7 +84,7 @@ async fn list(registry: Option<&str>, local: bool) -> Result<(), AppError> {
         let local_keys = keys::list_local()?;
         if local_keys.is_empty() {
             display::info(
-                "No local keys found. Generate one with: qpm key generate --name <name>",
+                "No local keys found. Generate one with: apkg key generate --name <name>",
             );
             return Ok(());
         }
@@ -102,8 +102,8 @@ async fn list(registry: Option<&str>, local: bool) -> Result<(), AppError> {
 
     if resp.keys.is_empty() {
         display::info("No signing keys registered. Generate and register one:");
-        display::info("  qpm key generate --name <name>");
-        display::info("  qpm key register");
+        display::info("  apkg key generate --name <name>");
+        display::info("  apkg key register");
         return Ok(());
     }
 
@@ -131,7 +131,7 @@ async fn register(
     let local_keys = keys::list_local()?;
     if local_keys.is_empty() {
         return Err(AppError::Other(
-            "No local keys found. Generate one first: qpm key generate --name <name>".into(),
+            "No local keys found. Generate one first: apkg key generate --name <name>".into(),
         ));
     }
 

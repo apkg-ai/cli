@@ -37,7 +37,7 @@ pub fn run(opts: &RemoveOptions<'_>) -> Result<(), AppError> {
         )));
     }
 
-    // Clear the map if it's now empty so it's omitted from qpm.json
+    // Clear the map if it's now empty so it's omitted from apkg.json
     if deps.is_empty() {
         match opts.category {
             DepCategory::Dependencies => m.dependencies = None,
@@ -49,16 +49,20 @@ pub fn run(opts: &RemoveOptions<'_>) -> Result<(), AppError> {
     manifest::save(&cwd, &m)?;
 
     // Remove installed files
-    let install_dir = cwd.join("qpm_packages").join(opts.package);
+    let install_dir = cwd.join("apkg_packages").join(opts.package);
     let removed_files = if install_dir.exists() {
         std::fs::remove_dir_all(&install_dir)?;
-        cleanup_empty_parents(&install_dir, &cwd.join("qpm_packages"));
+        cleanup_empty_parents(&install_dir, &cwd.join("apkg_packages"));
         true
     } else {
         false
     };
 
-    display::success(&format!("Removed {} from {}", opts.package, opts.category.label()));
+    display::success(&format!(
+        "Removed {} from {}",
+        opts.package,
+        opts.category.label()
+    ));
     if removed_files {
         display::label_value("Deleted", &install_dir.display().to_string());
     }
@@ -67,8 +71,8 @@ pub fn run(opts: &RemoveOptions<'_>) -> Result<(), AppError> {
 }
 
 /// Remove empty parent directories up to (but not including) `stop_at`.
-/// Handles scoped packages: removing `qpm_packages/@scope/pkg` may leave
-/// an empty `qpm_packages/@scope/` directory.
+/// Handles scoped packages: removing `apkg_packages/@scope/pkg` may leave
+/// an empty `apkg_packages/@scope/` directory.
 fn cleanup_empty_parents(path: &Path, stop_at: &Path) {
     let mut current = path.parent();
     while let Some(parent) = current {
@@ -92,7 +96,7 @@ mod tests {
     #[test]
     fn test_cleanup_empty_parents_removes_empty() {
         let tmp = tempfile::tempdir().unwrap();
-        let base = tmp.path().join("qpm_packages");
+        let base = tmp.path().join("apkg_packages");
         let scope_dir = base.join("@scope");
         let pkg_dir = scope_dir.join("pkg");
         std::fs::create_dir_all(&pkg_dir).unwrap();
@@ -105,7 +109,7 @@ mod tests {
     #[test]
     fn test_cleanup_empty_parents_keeps_nonempty() {
         let tmp = tempfile::tempdir().unwrap();
-        let base = tmp.path().join("qpm_packages");
+        let base = tmp.path().join("apkg_packages");
         let scope_dir = base.join("@scope");
         let pkg_dir = scope_dir.join("pkg");
         let other_dir = scope_dir.join("other-pkg");
@@ -113,6 +117,9 @@ mod tests {
         std::fs::create_dir_all(&other_dir).unwrap();
         std::fs::remove_dir(&pkg_dir).unwrap();
         cleanup_empty_parents(&pkg_dir, &base);
-        assert!(scope_dir.exists(), "@scope dir should remain because other-pkg exists");
+        assert!(
+            scope_dir.exists(),
+            "@scope dir should remain because other-pkg exists"
+        );
     }
 }

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
 
-pub const LOCKFILE_NAME: &str = "qpm-lock.json";
+pub const LOCKFILE_NAME: &str = "apkg-lock.json";
 pub const LOCKFILE_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,7 +95,7 @@ mod tests {
             "foo@1.0.0".to_string(),
             LockedPackage {
                 version: "1.0.0".to_string(),
-                resolved: "https://registry.qpm.dev/api/v1/packages/foo/1.0.0/tarball".to_string(),
+                resolved: "https://registry.apkg.ai/api/v1/packages/foo/1.0.0/tarball".to_string(),
                 integrity: "sha256-abc123".to_string(),
                 dependencies: BTreeMap::new(),
                 peer_dependencies: BTreeMap::new(),

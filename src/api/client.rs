@@ -25,7 +25,7 @@ impl ApiClient {
         let token = credentials::load()?.map(|c| c.access_token);
 
         let client = reqwest::Client::builder()
-            .user_agent(format!("qpm-cli/{}", env!("CARGO_PKG_VERSION")))
+            .user_agent(format!("apkg-cli/{}", env!("CARGO_PKG_VERSION")))
             .build()?;
 
         Ok(Self {
@@ -42,7 +42,7 @@ impl ApiClient {
             svc_url.trim_end_matches('/').to_string()
         } else if let Some(ovr) = &self.registry_override {
             ovr.trim_end_matches('/').to_string()
-        } else if let Ok(env_reg) = std::env::var("QPM_REGISTRY") {
+        } else if let Ok(env_reg) = std::env::var("APKG_REGISTRY") {
             env_reg.trim_end_matches('/').to_string()
         } else {
             self.settings.base_url(service)

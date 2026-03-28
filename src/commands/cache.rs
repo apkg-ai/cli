@@ -105,9 +105,7 @@ fn run_verify() -> Result<(), AppError> {
     println!("  {} ok", result.ok);
 
     for label in &result.corrupted {
-        display::warn(&format!(
-            "corrupted ({label} — hash mismatch, removed)"
-        ));
+        display::warn(&format!("corrupted ({label} — hash mismatch, removed)"));
     }
 
     if result.corrupted.is_empty() {

@@ -16,9 +16,9 @@ pub struct StoredKey {
 }
 
 fn keys_dir() -> Result<PathBuf, AppError> {
-    let home =
-        dirs::home_dir().ok_or_else(|| AppError::Other("Cannot determine home directory".into()))?;
-    Ok(home.join(".qpm").join("keys"))
+    let home = dirs::home_dir()
+        .ok_or_else(|| AppError::Other("Cannot determine home directory".into()))?;
+    Ok(home.join(".apkg").join("keys"))
 }
 
 fn key_filename(key_id: &str) -> String {
@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn test_stored_key_roundtrip() {
         let tmp = tempfile::tempdir().unwrap();
-        let keys_dir = tmp.path().join(".qpm").join("keys");
+        let keys_dir = tmp.path().join(".apkg").join("keys");
         fs::create_dir_all(&keys_dir).unwrap();
 
         let key = StoredKey {

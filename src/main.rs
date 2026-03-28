@@ -14,12 +14,12 @@ use crate::error::AppError;
 
 #[derive(Parser)]
 #[command(
-    name = "qpm",
+    name = "apkg",
     about = "Package manager for AI tooling — skills, agents, MCP servers, prompts, configs",
     version
 )]
 struct Cli {
-    /// Registry URL (overrides `QPM_REGISTRY` env var and config file)
+    /// Registry URL (overrides `APKG_REGISTRY` env var and config file)
     #[arg(long, global = true)]
     registry: Option<String>,
 
@@ -41,9 +41,9 @@ enum Commands {
         action: ConfigAction,
     },
 
-    /// Create a new qpm.json manifest interactively
+    /// Create a new apkg.json manifest interactively
     Init {
-        /// Overwrite existing qpm.json
+        /// Overwrite existing apkg.json
         #[arg(long)]
         force: bool,
     },
@@ -140,9 +140,9 @@ enum Commands {
         package: Option<String>,
     },
 
-    /// Download and extract a package (or all deps from qpm.json)
+    /// Download and extract a package (or all deps from apkg.json)
     Install {
-        /// Package name[@version]. Omit to install all deps from qpm.json.
+        /// Package name[@version]. Omit to install all deps from apkg.json.
         package: Option<String>,
 
         /// Generate config for a specific tool only: cursor, claude-code, or all (default)
@@ -327,7 +327,7 @@ enum DistTagSubcommand {
 
 #[derive(Subcommand)]
 enum ConfigAction {
-    /// Set a config value (e.g. `qpm config set services.auth http://localhost:8787`)
+    /// Set a config value (e.g. `apkg config set services.auth http://localhost:8787`)
     Set {
         /// Config key (registry, services.auth, services.package, services.mfa, services.search)
         key: String,
@@ -353,6 +353,9 @@ enum SetupTargetArg {
     All,
     Cursor,
     ClaudeCode,
+    Windsurf,
+    Kiro,
+    Codex,
 }
 
 fn main() -> ExitCode {
@@ -361,7 +364,7 @@ fn main() -> ExitCode {
     // Handle completions synchronously — no async runtime needed
     if let Commands::Completions { shell } = cli.command {
         let mut cmd = Cli::command();
-        clap_complete::generate(shell, &mut cmd, "qpm", &mut std::io::stdout());
+        clap_complete::generate(shell, &mut cmd, "apkg", &mut std::io::stdout());
         return ExitCode::SUCCESS;
     }
 
@@ -407,31 +410,26 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             ConfigAction::Get { ref key } => {
                 commands::config::run(commands::config::ConfigAction::Get { key })
             }
-            ConfigAction::List => {
-                commands::config::run(commands::config::ConfigAction::List)
-            }
+            ConfigAction::List => commands::config::run(commands::config::ConfigAction::List),
             ConfigAction::Delete { ref key } => {
                 commands::config::run(commands::config::ConfigAction::Delete { key })
             }
         },
-        Commands::Init { force } => {
-            commands::init::run(commands::init::InitOptions { force })
-        }
+        Commands::Init { force } => commands::init::run(commands::init::InitOptions { force }),
         Commands::Login => commands::login::run(registry).await,
         Commands::Logout => commands::logout::run(),
         Commands::Whoami => commands::whoami::run(registry).await,
         Commands::Key { action } => {
             let key_action = match &action {
-                KeySubcommand::Generate { ref name } => {
-                    commands::key::KeyAction::Generate { name }
-                }
+                KeySubcommand::Generate { ref name } => commands::key::KeyAction::Generate { name },
                 KeySubcommand::List { local } => commands::key::KeyAction::List { local: *local },
-                KeySubcommand::Register { ref name, ref key_id } => {
-                    commands::key::KeyAction::Register {
-                        name: name.as_deref(),
-                        key_id: key_id.as_deref(),
-                    }
-                }
+                KeySubcommand::Register {
+                    ref name,
+                    ref key_id,
+                } => commands::key::KeyAction::Register {
+                    name: name.as_deref(),
+                    key_id: key_id.as_deref(),
+                },
                 KeySubcommand::Revoke {
                     ref key_id,
                     ref reason,
@@ -467,9 +465,7 @@ async fn run(cli: Cli) -> Result<(), AppError> {
                 TokenSubcommand::List { json } => {
                     commands::token::TokenAction::List { json: *json }
                 }
-                TokenSubcommand::Revoke { ref id } => {
-                    commands::token::TokenAction::Revoke { id }
-                }
+                TokenSubcommand::Revoke { ref id } => commands::token::TokenAction::Revoke { id },
             };
             commands::token::run(token_action, registry).await
         }
@@ -492,12 +488,11 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             } else {
                 Some(match setup {
                     SetupTargetArg::All => setup::SetupTarget::All,
-                    SetupTargetArg::Cursor => {
-                        setup::SetupTarget::Only(setup::Tool::Cursor)
-                    }
-                    SetupTargetArg::ClaudeCode => {
-                        setup::SetupTarget::Only(setup::Tool::ClaudeCode)
-                    }
+                    SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
+                    SetupTargetArg::ClaudeCode => setup::SetupTarget::Only(setup::Tool::ClaudeCode),
+                    SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
+                    SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
+                    SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
                 })
             };
             commands::add::run(commands::add::AddOptions {
@@ -572,10 +567,7 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             } else {
                 util::package::DepCategory::Dependencies
             };
-            commands::remove::run(&commands::remove::RemoveOptions {
-                package,
-                category,
-            })
+            commands::remove::run(&commands::remove::RemoveOptions { package, category })
         }
         Commands::Pack => commands::pack::run(),
         Commands::Publish => commands::publish::run(registry).await,
@@ -590,12 +582,11 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             } else {
                 Some(match setup {
                     SetupTargetArg::All => setup::SetupTarget::All,
-                    SetupTargetArg::Cursor => {
-                        setup::SetupTarget::Only(setup::Tool::Cursor)
-                    }
-                    SetupTargetArg::ClaudeCode => {
-                        setup::SetupTarget::Only(setup::Tool::ClaudeCode)
-                    }
+                    SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
+                    SetupTargetArg::ClaudeCode => setup::SetupTarget::Only(setup::Tool::ClaudeCode),
+                    SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
+                    SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
+                    SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
                 })
             };
             commands::install::run(commands::install::InstallOptions {
@@ -632,10 +623,7 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             })
             .await
         }
-        Commands::Info {
-            ref package,
-            json,
-        } => {
+        Commands::Info { ref package, json } => {
             commands::info::run(commands::info::InfoOptions {
                 package,
                 json,

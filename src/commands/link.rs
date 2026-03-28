@@ -6,16 +6,16 @@ use crate::error::AppError;
 use crate::util::display;
 
 pub enum LinkAction<'a> {
-    /// `qpm link` — register current package globally
+    /// `apkg link` — register current package globally
     Register,
-    /// `qpm link <target>` — link into current project's `qpm_packages/`
+    /// `apkg link <target>` — link into current project's `apkg_packages/`
     LinkTarget { target: &'a str },
 }
 
 pub enum UnlinkAction<'a> {
-    /// `qpm unlink` — unregister current package from global store
+    /// `apkg unlink` — unregister current package from global store
     Unregister,
-    /// `qpm unlink <package>` — remove symlink from `qpm_packages/`
+    /// `apkg unlink <package>` — remove symlink from `apkg_packages/`
     UnlinkPackage { package: &'a str },
 }
 
@@ -29,7 +29,7 @@ pub fn run_link(action: &LinkAction<'_>) -> Result<(), AppError> {
             links::register(&m.name, &abs_path)?;
             display::success(&format!("Linked {} globally.", m.name));
             display::info(&format!(
-                "Other projects can now link to it with: qpm link {}",
+                "Other projects can now link to it with: apkg link {}",
                 m.name
             ));
             Ok(())
@@ -37,7 +37,7 @@ pub fn run_link(action: &LinkAction<'_>) -> Result<(), AppError> {
         LinkAction::LinkTarget { target } => {
             let (name, source_path) = resolve_target(target, &cwd)?;
 
-            let link_path = cwd.join("qpm_packages").join(&name);
+            let link_path = cwd.join("apkg_packages").join(&name);
 
             // For scoped packages, ensure the parent scope directory exists
             if let Some(parent) = link_path.parent() {
@@ -50,11 +50,7 @@ pub fn run_link(action: &LinkAction<'_>) -> Result<(), AppError> {
             }
 
             create_symlink(&source_path, &link_path)?;
-            display::success(&format!(
-                "Linked {} -> {}",
-                name,
-                source_path.display()
-            ));
+            display::success(&format!("Linked {} -> {}", name, source_path.display()));
             Ok(())
         }
     }
@@ -75,7 +71,7 @@ pub fn run_unlink(action: &UnlinkAction<'_>) -> Result<(), AppError> {
             Ok(())
         }
         UnlinkAction::UnlinkPackage { package } => {
-            let link_path = cwd.join("qpm_packages").join(package);
+            let link_path = cwd.join("apkg_packages").join(package);
 
             let is_symlink = link_path
                 .symlink_metadata()
@@ -87,7 +83,7 @@ pub fn run_unlink(action: &UnlinkAction<'_>) -> Result<(), AppError> {
             }
 
             remove_symlink(&link_path)?;
-            cleanup_empty_parents(&link_path, &cwd.join("qpm_packages"));
+            cleanup_empty_parents(&link_path, &cwd.join("apkg_packages"));
             display::success(&format!("Unlinked {package}."));
             Ok(())
         }
@@ -110,15 +106,15 @@ fn resolve_target(target: &str, cwd: &Path) -> Result<(String, std::path::PathBu
         } else {
             cwd.join(target)
         };
-        let resolved = raw.canonicalize().map_err(|_| {
-            AppError::Other(format!("Path does not exist: {target}"))
-        })?;
+        let resolved = raw
+            .canonicalize()
+            .map_err(|_| AppError::Other(format!("Path does not exist: {target}")))?;
         let m = manifest::load(&resolved)?;
         Ok((m.name, resolved))
     } else {
         let entry = links::lookup(target)?.ok_or_else(|| {
             AppError::Other(format!(
-                "{target} is not registered globally. Run `qpm link` in the package directory first, or provide a path."
+                "{target} is not registered globally. Run `apkg link` in the package directory first, or provide a path."
             ))
         })?;
         let source = std::path::PathBuf::from(&entry.path);

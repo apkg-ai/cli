@@ -81,7 +81,7 @@ async fn list(registry: Option<&str>, json: bool) -> Result<(), AppError> {
     }
 
     if resp.tokens.is_empty() {
-        display::info("No API tokens found. Create one with: qpm token create --name <name> --scopes <scopes>");
+        display::info("No API tokens found. Create one with: apkg token create --name <name> --scopes <scopes>");
         return Ok(());
     }
 

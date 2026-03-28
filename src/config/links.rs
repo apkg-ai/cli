@@ -13,11 +13,11 @@ pub struct LinkEntry {
     pub linked_at: String,
 }
 
-/// Return the global link-store directory (`~/.qpm/links/`).
+/// Return the global link-store directory (`~/.apkg/links/`).
 pub fn links_dir() -> Result<PathBuf, AppError> {
-    let home =
-        dirs::home_dir().ok_or_else(|| AppError::Other("Cannot determine home directory".into()))?;
-    Ok(home.join(".qpm").join("links"))
+    let home = dirs::home_dir()
+        .ok_or_else(|| AppError::Other("Cannot determine home directory".into()))?;
+    Ok(home.join(".apkg").join("links"))
 }
 
 fn entry_path(name: &str) -> Result<PathBuf, AppError> {
@@ -114,7 +114,7 @@ mod tests {
     fn test_links_dir() {
         with_temp_home(|| {
             let dir = links_dir().unwrap();
-            assert!(dir.ends_with(".qpm/links"));
+            assert!(dir.ends_with(".apkg/links"));
         });
     }
 

@@ -21,9 +21,9 @@ pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
     let resp = client.login(&username, &password).await?;
 
     let (access_token, refresh_token) = if resp.requires_mfa() {
-        let mfa_token = resp.mfa_token.ok_or_else(|| {
-            AppError::Other("MFA required but no MFA token returned".to_string())
-        })?;
+        let mfa_token = resp
+            .mfa_token
+            .ok_or_else(|| AppError::Other("MFA required but no MFA token returned".to_string()))?;
 
         display::info("MFA is enabled for this account.");
         let code: String = Input::new()
@@ -34,19 +34,19 @@ pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
         let mfa_resp = client.mfa_challenge(&mfa_token, &code).await?;
         (mfa_resp.access_token, mfa_resp.refresh_token)
     } else {
-        let access_token = resp.access_token.ok_or_else(|| {
-            AppError::Other("Login response missing access token".to_string())
-        })?;
-        let refresh_token = resp.refresh_token.ok_or_else(|| {
-            AppError::Other("Login response missing refresh token".to_string())
-        })?;
+        let access_token = resp
+            .access_token
+            .ok_or_else(|| AppError::Other("Login response missing access token".to_string()))?;
+        let refresh_token = resp
+            .refresh_token
+            .ok_or_else(|| AppError::Other("Login response missing refresh token".to_string()))?;
         (access_token, refresh_token)
     };
 
     let settings = Settings::load()?;
     let registry_url = registry
         .map(std::string::ToString::to_string)
-        .or_else(|| std::env::var("QPM_REGISTRY").ok())
+        .or_else(|| std::env::var("APKG_REGISTRY").ok())
         .or(settings.registry.clone())
         .unwrap_or_else(|| crate::config::DEFAULT_REGISTRY.to_string());
 

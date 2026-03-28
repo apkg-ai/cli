@@ -35,7 +35,10 @@ pub async fn run(opts: InfoOptions<'_>) -> Result<(), AppError> {
     let dim_style = Style::new().dim();
 
     // Name + latest version
-    let latest = metadata.dist_tags.get("latest").map_or("?.?.?", std::string::String::as_str);
+    let latest = metadata
+        .dist_tags
+        .get("latest")
+        .map_or("?.?.?", std::string::String::as_str);
     println!(
         "\n{} {}",
         name_style.apply_to(&metadata.name),
@@ -54,11 +57,7 @@ pub async fn run(opts: InfoOptions<'_>) -> Result<(), AppError> {
     if !metadata.dist_tags.is_empty() {
         println!("{}", header_style.apply_to("Dist-Tags:"));
         for (tag, version) in &metadata.dist_tags {
-            println!(
-                "  {}: {}",
-                tag,
-                version_style.apply_to(version)
-            );
+            println!("  {}: {}", tag, version_style.apply_to(version));
         }
         println!();
     }

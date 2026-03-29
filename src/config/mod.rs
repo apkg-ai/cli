@@ -6,4 +6,4 @@ pub mod lockfile;
 pub mod manifest;
 pub mod settings;
 
-pub const DEFAULT_REGISTRY: &str = "https://registry.apkg.ai/api/v1";
+pub const DEFAULT_REGISTRY: &str = "https://api.apkg.ai";

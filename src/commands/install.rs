@@ -84,6 +84,19 @@ async fn install_all(opts: &InstallOptions<'_>) -> Result<(), AppError> {
 
     pb.finish_and_clear();
 
+    // Run setup for all installed packages
+    if let Some(ref target) = opts.setup_target {
+        for (name, _pkg) in &result.packages {
+            let install_dir = cwd.join("apkg_packages").join(safe_dir_name(name));
+            let report = setup::run_setup(&setup::SetupContext {
+                project_root: cwd.clone(),
+                install_dir,
+                target: target.clone(),
+            });
+            setup::display_report(&report);
+        }
+    }
+
     let elapsed = start.elapsed();
     display::success(&format!(
         "Installed {pkg_count} package{} in {:.1}s",
@@ -185,7 +198,7 @@ async fn install_single(opts: &InstallOptions<'_>, pkg: &str) -> Result<(), AppE
             install_dir,
             target,
         });
-        display_setup_report(&report);
+        setup::display_report(&report);
     }
 
     Ok(())
@@ -327,23 +340,6 @@ fn extract_dist_info(
         )
     } else {
         (String::new(), String::new(), "unknown".to_string())
-    }
-}
-
-fn display_setup_report(report: &setup::SetupReport) {
-    for warning in &report.warnings {
-        display::warn(warning);
-    }
-
-    if report.created.is_empty() {
-        return;
-    }
-
-    let tool_names: Vec<String> = report.tools.iter().map(ToString::to_string).collect();
-    println!();
-    display::info(&format!("Detected tools: {}", tool_names.join(", ")));
-    for action in &report.created {
-        println!("  Created: {}", action.path.display());
     }
 }
 

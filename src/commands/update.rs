@@ -9,6 +9,7 @@ use crate::config::lockfile::Lockfile;
 use crate::config::{lockfile, manifest};
 use crate::error::AppError;
 use crate::resolver;
+use crate::setup;
 use crate::util::display;
 
 pub struct UpdateOptions<'a> {
@@ -16,6 +17,7 @@ pub struct UpdateOptions<'a> {
     pub registry: Option<&'a str>,
     pub latest: bool,
     pub dry_run: bool,
+    pub setup_target: Option<setup::SetupTarget>,
 }
 
 struct Change {
@@ -112,60 +114,74 @@ pub async fn run(opts: UpdateOptions<'_>) -> Result<(), AppError> {
 
     if changes.is_empty() {
         display::success("All packages are up to date.");
-        return Ok(());
-    }
+    } else {
+        // Display table
+        print_changes_table(&changes, opts.latest);
 
-    // Display table
-    print_changes_table(&changes, opts.latest);
-
-    if opts.dry_run {
-        display::info("No changes written (--dry-run).");
-        return Ok(());
-    }
-
-    // Download changed packages
-    let dl_pb = install::make_spinner();
-    for change in &changes {
-        if let Some(pkg) = result.packages.get(&change.name) {
-            let install_dir = cwd
-                .join("apkg_packages")
-                .join(install::safe_dir_name(&change.name));
-            install::download_or_cache(
-                &client,
-                &change.name,
-                &pkg.version,
-                &pkg.integrity,
-                &install_dir,
-                &dl_pb,
-            )
-            .await?;
+        if opts.dry_run {
+            display::info("No changes written (--dry-run).");
+            return Ok(());
         }
-    }
-    dl_pb.finish_and_clear();
 
-    // Save lockfile
-    let lf = install::build_lockfile(&result);
-    lockfile::save(&cwd, &lf)?;
-
-    // If --latest, update manifest ranges
-    if opts.latest {
-        let mut updated_manifest = m;
-        if let Some(ref mut manifest_deps) = updated_manifest.dependencies {
-            for change in &changes {
-                if manifest_deps.contains_key(&change.name) {
-                    manifest_deps.insert(change.name.clone(), change.new_range.clone());
-                }
+        // Download changed packages
+        let dl_pb = install::make_spinner();
+        for change in &changes {
+            if let Some(pkg) = result.packages.get(&change.name) {
+                let install_dir = cwd
+                    .join("apkg_packages")
+                    .join(install::safe_dir_name(&change.name));
+                install::download_or_cache(
+                    &client,
+                    &change.name,
+                    &pkg.version,
+                    &pkg.integrity,
+                    &install_dir,
+                    &dl_pb,
+                )
+                .await?;
             }
         }
-        manifest::save(&cwd, &updated_manifest)?;
+        dl_pb.finish_and_clear();
+
+        // Save lockfile
+        let lf = install::build_lockfile(&result);
+        lockfile::save(&cwd, &lf)?;
+
+        // If --latest, update manifest ranges
+        if opts.latest {
+            let mut updated_manifest = m;
+            if let Some(ref mut manifest_deps) = updated_manifest.dependencies {
+                for change in &changes {
+                    if manifest_deps.contains_key(&change.name) {
+                        manifest_deps.insert(change.name.clone(), change.new_range.clone());
+                    }
+                }
+            }
+            manifest::save(&cwd, &updated_manifest)?;
+        }
+
+        let pkg_word = if changes.len() == 1 {
+            "package"
+        } else {
+            "packages"
+        };
+        display::success(&format!("Updated {} {pkg_word}.", changes.len()));
     }
 
-    let pkg_word = if changes.len() == 1 {
-        "package"
-    } else {
-        "packages"
-    };
-    display::success(&format!("Updated {} {pkg_word}.", changes.len()));
+    // Always run setup for all resolved packages to ensure tool configs are in sync
+    if let Some(ref target) = opts.setup_target {
+        for (name, _pkg) in &result.packages {
+            let install_dir = cwd
+                .join("apkg_packages")
+                .join(install::safe_dir_name(name));
+            let report = setup::run_setup(&setup::SetupContext {
+                project_root: cwd.clone(),
+                install_dir,
+                target: target.clone(),
+            });
+            setup::display_report(&report);
+        }
+    }
 
     Ok(())
 }

@@ -150,7 +150,7 @@ pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
             install_dir,
             target,
         });
-        display_setup_report(&report);
+        setup::display_report(&report);
     }
 
     Ok(())
@@ -234,19 +234,3 @@ fn extract_dist_info(
     }
 }
 
-fn display_setup_report(report: &setup::SetupReport) {
-    for warning in &report.warnings {
-        display::warn(warning);
-    }
-
-    if report.created.is_empty() {
-        return;
-    }
-
-    let tool_names: Vec<String> = report.tools.iter().map(ToString::to_string).collect();
-    println!();
-    display::info(&format!("Detected tools: {}", tool_names.join(", ")));
-    for action in &report.created {
-        println!("  Created: {}", action.path.display());
-    }
-}

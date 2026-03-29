@@ -284,6 +284,26 @@ pub fn run_setup(ctx: &SetupContext) -> SetupReport {
     }
 }
 
+/// Display a human-readable summary of setup actions.
+pub fn display_report(report: &SetupReport) {
+    use crate::util::display;
+
+    for warning in &report.warnings {
+        display::warn(warning);
+    }
+
+    if report.created.is_empty() {
+        return;
+    }
+
+    let tool_names: Vec<String> = report.tools.iter().map(ToString::to_string).collect();
+    println!();
+    display::info(&format!("Detected tools: {}", tool_names.join(", ")));
+    for action in &report.created {
+        println!("  Created: {}", action.path.display());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

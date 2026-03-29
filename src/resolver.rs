@@ -161,13 +161,26 @@ fn resolve_best_version<'a>(
 /// Bare versions like `"1.2.3"` are treated as exact (`"=1.2.3"`) because the
 /// spec says bare version means exact. The `semver` crate would interpret
 /// `"1.2.3"` as `"^1.2.3"`.
+///
+/// Caret ranges for 0.x versions are expanded so that `^0.1.0` means
+/// `>=0.1.0, <1.0.0` (same semantics as `^1.0.0` → `>=1.0.0, <2.0.0`).
+/// The Rust `semver` crate follows strict semver where `^0.1.0` = `>=0.1.0, <0.2.0`,
+/// which is overly restrictive for a package manager.
 fn normalize_range(range: &str) -> String {
     let trimmed = range.trim();
     if trimmed.is_empty() || trimmed == "*" {
         return trimmed.to_string();
     }
-    if trimmed.starts_with('^')
-        || trimmed.starts_with('~')
+    // Caret ranges for 0.x: expand to >=0.x.y, <1.0.0
+    if let Some(version_part) = trimmed.strip_prefix('^') {
+        if let Ok(v) = semver::Version::parse(version_part) {
+            if v.major == 0 {
+                return format!(">={version_part}, <1.0.0");
+            }
+        }
+        return trimmed.to_string();
+    }
+    if trimmed.starts_with('~')
         || trimmed.starts_with('>')
         || trimmed.starts_with('<')
         || trimmed.starts_with('=')
@@ -281,6 +294,16 @@ mod tests {
     #[test]
     fn test_normalize_range_caret() {
         assert_eq!(normalize_range("^1.0.0"), "^1.0.0");
+    }
+
+    #[test]
+    fn test_normalize_range_caret_zero_major() {
+        assert_eq!(normalize_range("^0.1.0"), ">=0.1.0, <1.0.0");
+    }
+
+    #[test]
+    fn test_normalize_range_caret_zero_zero() {
+        assert_eq!(normalize_range("^0.0.3"), ">=0.0.3, <1.0.0");
     }
 
     #[test]

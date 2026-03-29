@@ -184,6 +184,14 @@ enum Commands {
         /// Show what would change without modifying anything
         #[arg(long)]
         dry_run: bool,
+
+        /// Generate config for a specific tool only: cursor, claude-code, or all (default)
+        #[arg(long, value_name = "TOOL", default_value = "all")]
+        setup: SetupTargetArg,
+
+        /// Skip post-install tool setup entirely
+        #[arg(long)]
+        no_setup: bool,
     },
 
     /// Show package metadata
@@ -614,12 +622,27 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             ref package,
             latest,
             dry_run,
+            ref setup,
+            no_setup,
         } => {
+            let setup_target = if no_setup {
+                None
+            } else {
+                Some(match setup {
+                    SetupTargetArg::All => setup::SetupTarget::All,
+                    SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
+                    SetupTargetArg::ClaudeCode => setup::SetupTarget::Only(setup::Tool::ClaudeCode),
+                    SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
+                    SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
+                    SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
+                })
+            };
             commands::update::run(commands::update::UpdateOptions {
                 package: package.as_deref(),
                 registry,
                 latest,
                 dry_run,
+                setup_target,
             })
             .await
         }

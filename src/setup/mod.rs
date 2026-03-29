@@ -307,7 +307,24 @@ pub fn display_report(report: &SetupReport) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use tempfile::TempDir;
+
+    /// Mutex to serialize tests that mutate the HOME env var.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Run a closure with HOME pointing at a fresh temp directory so that
+    /// `Settings::load()` finds no user config and returns defaults.
+    fn with_temp_home<F>(f: F)
+    where
+        F: FnOnce(),
+    {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+        f();
+        unsafe { std::env::remove_var("HOME") };
+    }
 
     #[test]
     fn test_config_file_stem_scoped() {
@@ -465,19 +482,21 @@ mod tests {
 
     #[test]
     fn test_run_setup_no_tools() {
-        let tmp = TempDir::new().unwrap();
-        let install_dir = tmp.path().join("apkg_packages/pkg");
-        fs::create_dir_all(&install_dir).unwrap();
+        with_temp_home(|| {
+            let tmp = TempDir::new().unwrap();
+            let install_dir = tmp.path().join("apkg_packages/pkg");
+            fs::create_dir_all(&install_dir).unwrap();
 
-        let report = run_setup(&SetupContext {
-            project_root: tmp.path().to_path_buf(),
-            install_dir,
-            target: SetupTarget::All,
+            let report = run_setup(&SetupContext {
+                project_root: tmp.path().to_path_buf(),
+                install_dir,
+                target: SetupTarget::All,
+            });
+
+            assert!(report.tools.is_empty());
+            assert!(report.created.is_empty());
+            assert!(report.warnings.is_empty());
         });
-
-        assert!(report.tools.is_empty());
-        assert!(report.created.is_empty());
-        assert!(report.warnings.is_empty());
     }
 
     #[test]
@@ -509,44 +528,46 @@ mod tests {
 
     #[test]
     fn test_run_setup_creates_configs() {
-        let tmp = TempDir::new().unwrap();
-        fs::create_dir(tmp.path().join(".cursor")).unwrap();
-        fs::create_dir(tmp.path().join(".claude")).unwrap();
+        with_temp_home(|| {
+            let tmp = TempDir::new().unwrap();
+            fs::create_dir(tmp.path().join(".cursor")).unwrap();
+            fs::create_dir(tmp.path().join(".claude")).unwrap();
 
-        let install_dir = tmp.path().join("apkg_packages/@acme/code-reviewer");
-        fs::create_dir_all(&install_dir).unwrap();
-        let json = r#"{
-            "name": "@acme/code-reviewer",
-            "version": "1.2.0",
-            "type": "skill",
-            "description": "AI-powered code review",
-            "license": "MIT",
-            "main": "src/index.ts",
-            "skill": {
-                "capabilities": ["code-review", "bug-detection"],
-                "inputSchema": {},
-                "outputSchema": {}
-            }
-        }"#;
-        fs::write(install_dir.join("apkg.json"), json).unwrap();
+            let install_dir = tmp.path().join("apkg_packages/@acme/code-reviewer");
+            fs::create_dir_all(&install_dir).unwrap();
+            let json = r#"{
+                "name": "@acme/code-reviewer",
+                "version": "1.2.0",
+                "type": "skill",
+                "description": "AI-powered code review",
+                "license": "MIT",
+                "main": "src/index.ts",
+                "skill": {
+                    "capabilities": ["code-review", "bug-detection"],
+                    "inputSchema": {},
+                    "outputSchema": {}
+                }
+            }"#;
+            fs::write(install_dir.join("apkg.json"), json).unwrap();
 
-        let report = run_setup(&SetupContext {
-            project_root: tmp.path().to_path_buf(),
-            install_dir,
-            target: SetupTarget::All,
+            let report = run_setup(&SetupContext {
+                project_root: tmp.path().to_path_buf(),
+                install_dir,
+                target: SetupTarget::All,
+            });
+
+            assert_eq!(report.tools.len(), 2);
+            assert_eq!(report.created.len(), 2);
+            assert!(report.warnings.is_empty());
+            assert!(tmp
+                .path()
+                .join(".cursor/skills/acme--code-reviewer.mdc")
+                .exists());
+            assert!(tmp
+                .path()
+                .join(".claude/skills/acme--code-reviewer.md")
+                .exists());
         });
-
-        assert_eq!(report.tools.len(), 2);
-        assert_eq!(report.created.len(), 2);
-        assert!(report.warnings.is_empty());
-        assert!(tmp
-            .path()
-            .join(".cursor/skills/acme--code-reviewer.mdc")
-            .exists());
-        assert!(tmp
-            .path()
-            .join(".claude/skills/acme--code-reviewer.md")
-            .exists());
     }
 
     #[test]

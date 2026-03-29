@@ -58,6 +58,9 @@ pub fn run(opts: &RemoveOptions<'_>) -> Result<(), AppError> {
         false
     };
 
+    // Clean up tool-setup files (e.g. .claude/agents/*, .claude/skills/*)
+    cleanup_claude_setup(&cwd, opts.package);
+
     display::success(&format!(
         "Removed {} from {}",
         opts.package,
@@ -68,6 +71,29 @@ pub fn run(opts: &RemoveOptions<'_>) -> Result<(), AppError> {
     }
 
     Ok(())
+}
+
+/// Remove Claude Code setup files (`.claude/agents/` and `.claude/skills/`)
+/// that belong to the given package, matching both legacy pointer files and
+/// copied definition files by their naming prefix.
+fn cleanup_claude_setup(project_root: &Path, package_name: &str) {
+    let stem = crate::setup::config_file_stem(package_name);
+    let legacy = format!("{stem}.md");
+    let prefix = format!("{stem}--");
+
+    for subdir in &["agents", "skills"] {
+        let dir = project_root.join(".claude").join(subdir);
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.as_ref() == legacy || name.starts_with(&prefix) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
 }
 
 /// Remove empty parent directories up to (but not including) `stop_at`.
@@ -92,6 +118,32 @@ fn cleanup_empty_parents(path: &Path, stop_at: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_cleanup_claude_setup_removes_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let agents_dir = tmp.path().join(".claude").join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+
+        // Legacy pointer file
+        std::fs::write(agents_dir.join("sheplu--agent-reviewer.md"), "pointer").unwrap();
+        // Copied definition file
+        std::fs::write(
+            agents_dir.join("sheplu--agent-reviewer--code-reviewer.md"),
+            "def",
+        )
+        .unwrap();
+        // Unrelated file — should NOT be removed
+        std::fs::write(agents_dir.join("other--pkg.md"), "other").unwrap();
+
+        cleanup_claude_setup(tmp.path(), "@sheplu/agent-reviewer");
+
+        assert!(!agents_dir.join("sheplu--agent-reviewer.md").exists());
+        assert!(!agents_dir
+            .join("sheplu--agent-reviewer--code-reviewer.md")
+            .exists());
+        assert!(agents_dir.join("other--pkg.md").exists());
+    }
 
     #[test]
     fn test_cleanup_empty_parents_removes_empty() {

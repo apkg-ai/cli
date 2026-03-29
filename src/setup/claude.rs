@@ -6,22 +6,85 @@ use crate::config::manifest::PackageType;
 
 use super::{config_file_stem, resolve_system_prompt, PackageInfo};
 
-/// Generate and write a Claude Code command file for the given package.
+/// Generate and write Claude Code config files for the given package.
+///
+/// If the package contains `.md` files with YAML frontmatter (actual agent/skill
+/// definitions), those are copied directly into `.claude/{type}/`. Otherwise, a
+/// generated summary file is written as a fallback.
 pub fn setup_claude(
     project_root: &Path,
     install_dir: &Path,
     info: &PackageInfo,
-) -> Result<PathBuf, String> {
-    let content = generate_claude_command(install_dir, info);
-    let stem = config_file_stem(&info.name);
+) -> Result<Vec<PathBuf>, String> {
     let type_dir = info.package_type.dir_name();
     let target_dir = project_root.join(".claude").join(type_dir);
     fs::create_dir_all(&target_dir)
         .map_err(|e| format!("Failed to create .claude/{type_dir}/: {e}"))?;
 
-    let path = target_dir.join(format!("{stem}.md"));
-    fs::write(&path, content).map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
-    Ok(path)
+    let md_files = find_definition_files(install_dir);
+
+    if md_files.is_empty() {
+        // Fallback: generate a summary file (legacy behaviour for packages
+        // that don't ship their own .md definitions).
+        let content = generate_claude_command(install_dir, info);
+        let stem = config_file_stem(&info.name);
+        let path = target_dir.join(format!("{stem}.md"));
+        fs::write(&path, &content)
+            .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
+        return Ok(vec![path]);
+    }
+
+    let pkg_stem = config_file_stem(&info.name);
+    let mut created = Vec::new();
+
+    for src in &md_files {
+        let file_stem = src
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let dest_name = format!("{pkg_stem}--{file_stem}.md");
+        let dest = target_dir.join(&dest_name);
+        fs::copy(src, &dest).map_err(|e| {
+            format!(
+                "Failed to copy {} to {}: {e}",
+                src.display(),
+                dest.display()
+            )
+        })?;
+        created.push(dest);
+    }
+
+    Ok(created)
+}
+
+/// Find `.md` files in `install_dir` that contain YAML frontmatter and are
+/// likely agent/skill definitions (not documentation).
+fn find_definition_files(install_dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(install_dir) else {
+        return Vec::new();
+    };
+
+    let excluded: &[&str] = &["readme.md", "changelog.md", "license.md"];
+
+    entries
+        .filter_map(Result::ok)
+        .filter(|e| {
+            e.path()
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+        })
+        .filter(|e| {
+            let name = e.file_name();
+            let lower = name.to_string_lossy().to_lowercase();
+            !excluded.contains(&lower.as_str())
+        })
+        .filter(|e| {
+            fs::read_to_string(e.path())
+                .map(|c| c.starts_with("---\n") || c.starts_with("---\r\n"))
+                .unwrap_or(false)
+        })
+        .map(|e| e.path())
+        .collect()
 }
 
 fn generate_claude_command(install_dir: &Path, info: &PackageInfo) -> String {
@@ -189,15 +252,76 @@ mod tests {
     }
 
     #[test]
-    fn test_setup_claude_creates_file() {
+    fn test_setup_claude_fallback_when_no_md_files() {
         let tmp = TempDir::new().unwrap();
         fs::create_dir(tmp.path().join(".claude")).unwrap();
         let install_dir = tmp.path().join("apkg_packages/@acme/code-reviewer");
         fs::create_dir_all(&install_dir).unwrap();
 
-        let path = setup_claude(tmp.path(), &install_dir, &skill_info()).unwrap();
-        assert!(path.exists());
-        assert_eq!(path.file_name().unwrap(), "acme--code-reviewer.md");
+        let paths = setup_claude(tmp.path(), &install_dir, &skill_info()).unwrap();
+        assert_eq!(paths.len(), 1);
+        assert!(paths[0].exists());
+        assert_eq!(paths[0].file_name().unwrap(), "acme--code-reviewer.md");
+    }
+
+    #[test]
+    fn test_setup_claude_copies_frontmatter_md_files() {
+        let tmp = TempDir::new().unwrap();
+        let install_dir = tmp.path().join("apkg_packages/@acme/code-reviewer");
+        fs::create_dir_all(&install_dir).unwrap();
+        fs::write(
+            install_dir.join("review-agent.md"),
+            "---\nname: review-agent\ntools: Read, Grep\n---\nYou are a reviewer.",
+        )
+        .unwrap();
+
+        let paths = setup_claude(tmp.path(), &install_dir, &agent_info()).unwrap();
+        assert_eq!(paths.len(), 1);
+        let dest = &paths[0];
+        assert!(dest.exists());
+        assert_eq!(dest.file_name().unwrap(), "acme--research-agent--review-agent.md");
+        let content = fs::read_to_string(dest).unwrap();
+        assert!(content.starts_with("---\n"));
+        assert!(content.contains("You are a reviewer."));
+    }
+
+    #[test]
+    fn test_setup_claude_ignores_readme_and_non_frontmatter() {
+        let tmp = TempDir::new().unwrap();
+        let install_dir = tmp.path().join("apkg_packages/@acme/code-reviewer");
+        fs::create_dir_all(&install_dir).unwrap();
+
+        // Should be ignored: no frontmatter
+        fs::write(install_dir.join("notes.md"), "Just some notes.").unwrap();
+        // Should be ignored: excluded name
+        fs::write(install_dir.join("README.md"), "---\nname: readme\n---\nHello").unwrap();
+        // Should be copied: valid definition
+        fs::write(
+            install_dir.join("agent.md"),
+            "---\nname: agent\n---\nSystem prompt here.",
+        )
+        .unwrap();
+
+        let paths = setup_claude(tmp.path(), &install_dir, &agent_info()).unwrap();
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].file_name().unwrap(), "acme--research-agent--agent.md");
+    }
+
+    #[test]
+    fn test_find_definition_files() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("agent.md"),
+            "---\nname: agent\n---\nContent",
+        )
+        .unwrap();
+        fs::write(tmp.path().join("README.md"), "---\ntitle: hi\n---\n").unwrap();
+        fs::write(tmp.path().join("notes.md"), "No frontmatter").unwrap();
+        fs::write(tmp.path().join("other.txt"), "---\nfake\n---\n").unwrap();
+
+        let files = find_definition_files(tmp.path());
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_name().unwrap(), "agent.md");
     }
 
     #[test]

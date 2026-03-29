@@ -252,12 +252,24 @@ pub fn run_setup(ctx: &SetupContext) -> SetupReport {
     let mut warnings = Vec::new();
 
     for &tool in &tools {
+        if tool == Tool::ClaudeCode {
+            match claude::setup_claude(&ctx.project_root, &ctx.install_dir, &info) {
+                Ok(paths) => {
+                    for path in paths {
+                        created.push(SetupAction { tool, path });
+                    }
+                }
+                Err(msg) => warnings.push(format!("Tool setup skipped ({tool}): {msg}")),
+            }
+            continue;
+        }
+
         let result = match tool {
             Tool::Cursor => cursor::setup_cursor(&ctx.project_root, &ctx.install_dir, &info),
-            Tool::ClaudeCode => claude::setup_claude(&ctx.project_root, &ctx.install_dir, &info),
             Tool::Windsurf => windsurf::setup_windsurf(&ctx.project_root, &ctx.install_dir, &info),
             Tool::Kiro => kiro::setup_kiro(&ctx.project_root, &ctx.install_dir, &info),
             Tool::Codex => codex::setup_codex(&ctx.project_root, &ctx.install_dir, &info),
+            Tool::ClaudeCode => unreachable!(),
         };
         match result {
             Ok(path) => created.push(SetupAction { tool, path }),

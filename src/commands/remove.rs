@@ -78,11 +78,20 @@ pub fn run(opts: &RemoveOptions<'_>) -> Result<(), AppError> {
 /// copied definition files by their naming prefix.
 fn cleanup_claude_setup(project_root: &Path, package_name: &str) {
     let stem = crate::setup::config_file_stem(package_name);
-    let legacy = format!("{stem}.md");
-    let prefix = format!("{stem}--");
 
     for subdir in &["agents", "skills"] {
         let dir = project_root.join(".claude").join(subdir);
+
+        // New format: remove the subdirectory .claude/{type}/{stem}/
+        let pkg_dir = dir.join(&stem);
+        if pkg_dir.is_dir() {
+            let _ = std::fs::remove_dir_all(&pkg_dir);
+        }
+
+        // Legacy cleanup: remove flat files that match old naming convention.
+        // This ensures packages installed before the migration are cleaned up.
+        let legacy = format!("{stem}.md");
+        let prefix = format!("{stem}--");
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
@@ -125,9 +134,13 @@ mod tests {
         let agents_dir = tmp.path().join(".claude").join("agents");
         std::fs::create_dir_all(&agents_dir).unwrap();
 
-        // Legacy pointer file
+        // New format: subdirectory for the package
+        let pkg_dir = agents_dir.join("sheplu--agent-reviewer");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(pkg_dir.join("code-reviewer.md"), "def").unwrap();
+
+        // Legacy flat files (should also be cleaned up)
         std::fs::write(agents_dir.join("sheplu--agent-reviewer.md"), "pointer").unwrap();
-        // Copied definition file
         std::fs::write(
             agents_dir.join("sheplu--agent-reviewer--code-reviewer.md"),
             "def",
@@ -138,10 +151,14 @@ mod tests {
 
         cleanup_claude_setup(tmp.path(), "@sheplu/agent-reviewer");
 
+        // Subdirectory should be removed
+        assert!(!pkg_dir.exists());
+        // Legacy flat files should be removed
         assert!(!agents_dir.join("sheplu--agent-reviewer.md").exists());
         assert!(!agents_dir
             .join("sheplu--agent-reviewer--code-reviewer.md")
             .exists());
+        // Unrelated file should survive
         assert!(agents_dir.join("other--pkg.md").exists());
     }
 

@@ -23,7 +23,7 @@ pub fn create_tarball(dir: &Path) -> Result<Vec<u8>, AppError> {
     let ignore_patterns = load_ignore_patterns(dir);
 
     let buf = Vec::new();
-    let enc = GzEncoder::new(buf, Compression::default());
+    let enc = GzEncoder::new(buf, Compression::best());
     let mut archive = tar::Builder::new(enc);
 
     add_dir_recursive(&mut archive, dir, dir, &ignore_patterns)?;

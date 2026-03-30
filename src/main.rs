@@ -16,9 +16,14 @@ use crate::error::AppError;
 #[command(
     name = "apkg",
     about = "Package manager for AI tooling — skill, agent, command, rule",
-    version
+    version,
+    disable_version_flag = true
 )]
 struct Cli {
+    /// Print version
+    #[arg(short = 'v', short_alias = 'V', long = "version", action = clap::ArgAction::Version)]
+    version: (),
+
     /// Registry URL (overrides `APKG_REGISTRY` env var and config file)
     #[arg(long, global = true)]
     registry: Option<String>,

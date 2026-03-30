@@ -23,27 +23,29 @@ pub fn setup_claude(
 
     let md_files = find_definition_files(install_dir);
 
+    let pkg_stem = config_file_stem(&info.name);
+    let sub_dir = target_dir.join(&pkg_stem);
+    fs::create_dir_all(&sub_dir)
+        .map_err(|e| format!("Failed to create .claude/{type_dir}/{pkg_stem}/: {e}"))?;
+
     if md_files.is_empty() {
         // Fallback: generate a summary file (legacy behaviour for packages
         // that don't ship their own .md definitions).
         let content = generate_claude_command(install_dir, info);
-        let stem = config_file_stem(&info.name);
-        let path = target_dir.join(format!("{stem}.md"));
+        let path = sub_dir.join(format!("{pkg_stem}.md"));
         fs::write(&path, &content)
             .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
         return Ok(vec![path]);
     }
 
-    let pkg_stem = config_file_stem(&info.name);
     let mut created = Vec::new();
 
     for src in &md_files {
-        let file_stem = src
-            .file_stem()
+        let file_name = src
+            .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let dest_name = format!("{pkg_stem}--{file_stem}.md");
-        let dest = target_dir.join(&dest_name);
+        let dest = sub_dir.join(&file_name);
         fs::copy(src, &dest).map_err(|e| {
             format!(
                 "Failed to copy {} to {}: {e}",
@@ -262,6 +264,10 @@ mod tests {
         assert_eq!(paths.len(), 1);
         assert!(paths[0].exists());
         assert_eq!(paths[0].file_name().unwrap(), "acme--code-reviewer.md");
+        assert!(paths[0]
+            .parent()
+            .unwrap()
+            .ends_with("skills/acme--code-reviewer"));
     }
 
     #[test]
@@ -279,7 +285,11 @@ mod tests {
         assert_eq!(paths.len(), 1);
         let dest = &paths[0];
         assert!(dest.exists());
-        assert_eq!(dest.file_name().unwrap(), "acme--research-agent--review-agent.md");
+        assert_eq!(dest.file_name().unwrap(), "review-agent.md");
+        assert!(dest
+            .parent()
+            .unwrap()
+            .ends_with("agents/acme--research-agent"));
         let content = fs::read_to_string(dest).unwrap();
         assert!(content.starts_with("---\n"));
         assert!(content.contains("You are a reviewer."));
@@ -304,7 +314,11 @@ mod tests {
 
         let paths = setup_claude(tmp.path(), &install_dir, &agent_info()).unwrap();
         assert_eq!(paths.len(), 1);
-        assert_eq!(paths[0].file_name().unwrap(), "acme--research-agent--agent.md");
+        assert_eq!(paths[0].file_name().unwrap(), "agent.md");
+        assert!(paths[0]
+            .parent()
+            .unwrap()
+            .ends_with("agents/acme--research-agent"));
     }
 
     #[test]

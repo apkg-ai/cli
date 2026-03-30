@@ -568,7 +568,7 @@ mod tests {
             assert!(report.warnings.is_empty());
             assert!(tmp
                 .path()
-                .join(".claude/skills/acme--code-reviewer.md")
+                .join(".claude/skills/acme--code-reviewer/acme--code-reviewer.md")
                 .exists());
         });
     }
@@ -632,7 +632,7 @@ mod tests {
     //         .exists());
     //     assert!(!tmp
     //         .path()
-    //         .join(".claude/skills/acme--code-reviewer.md")
+    //         .join(".claude/skills/acme--code-reviewer/acme--code-reviewer.md")
     //         .exists());
     // }
 
@@ -672,7 +672,7 @@ mod tests {
             .exists());
         assert!(tmp
             .path()
-            .join(".claude/skills/acme--code-reviewer.md")
+            .join(".claude/skills/acme--code-reviewer/acme--code-reviewer.md")
             .exists());
     }
 
@@ -707,7 +707,7 @@ mod tests {
         assert_eq!(report.created.len(), 1);
         assert!(tmp
             .path()
-            .join(".claude/skills/acme--code-reviewer.md")
+            .join(".claude/skills/acme--code-reviewer/acme--code-reviewer.md")
             .exists());
     }
 

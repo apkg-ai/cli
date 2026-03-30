@@ -58,8 +58,9 @@ pub fn run(opts: &RemoveOptions<'_>) -> Result<(), AppError> {
         false
     };
 
-    // Clean up tool-setup files (e.g. .claude/agents/*, .claude/skills/*)
+    // Clean up tool-setup files (e.g. .claude/agents/*, .cursor/skills/*)
     cleanup_claude_setup(&cwd, opts.package);
+    cleanup_cursor_setup(&cwd, opts.package);
 
     display::success(&format!(
         "Removed {} from {}",
@@ -99,6 +100,36 @@ fn cleanup_claude_setup(project_root: &Path, package_name: &str) {
             let name = entry.file_name();
             let name = name.to_string_lossy();
             if name.as_ref() == legacy || name.starts_with(&prefix) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
+/// Remove Cursor setup files (`.cursor/skills/`, `.cursor/agents/`,
+/// `.cursor/commands/`, `.cursor/rules/`) that belong to the given package.
+fn cleanup_cursor_setup(project_root: &Path, package_name: &str) {
+    let stem = crate::setup::config_file_stem(package_name);
+
+    for subdir in &["skills", "agents", "commands", "rules"] {
+        let dir = project_root.join(".cursor").join(subdir);
+
+        // New format: remove the subdirectory .cursor/{type}/{stem}/
+        let pkg_dir = dir.join(&stem);
+        if pkg_dir.is_dir() {
+            let _ = std::fs::remove_dir_all(&pkg_dir);
+        }
+
+        // Legacy cleanup: remove flat files that match old naming convention.
+        let legacy_mdc = format!("{stem}.mdc");
+        let legacy_md = format!("{stem}.md");
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.as_ref() == legacy_mdc || name.as_ref() == legacy_md {
                 let _ = std::fs::remove_file(entry.path());
             }
         }
@@ -190,6 +221,74 @@ mod tests {
         cleanup_claude_setup(tmp.path(), "@acme/my-rule");
 
         assert!(!pkg_dir.exists());
+    }
+
+    #[test]
+    fn test_cleanup_cursor_setup_removes_skill_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let skills_dir = tmp.path().join(".cursor").join("skills");
+        std::fs::create_dir_all(&skills_dir).unwrap();
+
+        let pkg_dir = skills_dir.join("acme--code-reviewer");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(pkg_dir.join("SKILL.md"), "skill content").unwrap();
+
+        // Unrelated skill — should NOT be removed
+        let other_dir = skills_dir.join("other--skill");
+        std::fs::create_dir_all(&other_dir).unwrap();
+        std::fs::write(other_dir.join("SKILL.md"), "other").unwrap();
+
+        cleanup_cursor_setup(tmp.path(), "@acme/code-reviewer");
+
+        assert!(!pkg_dir.exists());
+        assert!(other_dir.exists());
+    }
+
+    #[test]
+    fn test_cleanup_cursor_setup_removes_agent_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let agents_dir = tmp.path().join(".cursor").join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+
+        let pkg_dir = agents_dir.join("acme--research-agent");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(pkg_dir.join("acme--research-agent.md"), "agent").unwrap();
+
+        cleanup_cursor_setup(tmp.path(), "@acme/research-agent");
+
+        assert!(!pkg_dir.exists());
+    }
+
+    #[test]
+    fn test_cleanup_cursor_setup_removes_rule_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rules_dir = tmp.path().join(".cursor").join("rules");
+        std::fs::create_dir_all(&rules_dir).unwrap();
+
+        let pkg_dir = rules_dir.join("acme--my-rule");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(pkg_dir.join("acme--my-rule.mdc"), "rule").unwrap();
+
+        cleanup_cursor_setup(tmp.path(), "@acme/my-rule");
+
+        assert!(!pkg_dir.exists());
+    }
+
+    #[test]
+    fn test_cleanup_cursor_setup_removes_legacy_flat_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let skills_dir = tmp.path().join(".cursor").join("skills");
+        std::fs::create_dir_all(&skills_dir).unwrap();
+
+        // Legacy flat .mdc file from old implementation
+        std::fs::write(skills_dir.join("acme--code-reviewer.mdc"), "old").unwrap();
+        // Unrelated file — should NOT be removed
+        std::fs::write(skills_dir.join("other--pkg.mdc"), "other").unwrap();
+
+        cleanup_cursor_setup(tmp.path(), "@acme/code-reviewer");
+
+        assert!(!skills_dir.join("acme--code-reviewer.mdc").exists());
+        assert!(skills_dir.join("other--pkg.mdc").exists());
     }
 
     #[test]

@@ -15,7 +15,7 @@ use crate::error::AppError;
 #[derive(Parser)]
 #[command(
     name = "apkg",
-    about = "Package manager for AI tooling — skills, agents, MCP servers, prompts, configs",
+    about = "Package manager for AI tooling — skill, agent, command, rule",
     version
 )]
 struct Cli {

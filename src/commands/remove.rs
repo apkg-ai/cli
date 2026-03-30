@@ -79,7 +79,7 @@ pub fn run(opts: &RemoveOptions<'_>) -> Result<(), AppError> {
 fn cleanup_claude_setup(project_root: &Path, package_name: &str) {
     let stem = crate::setup::config_file_stem(package_name);
 
-    for subdir in &["agents", "skills"] {
+    for subdir in &["agents", "skills", "commands", "rules"] {
         let dir = project_root.join(".claude").join(subdir);
 
         // New format: remove the subdirectory .claude/{type}/{stem}/
@@ -160,6 +160,36 @@ mod tests {
             .exists());
         // Unrelated file should survive
         assert!(agents_dir.join("other--pkg.md").exists());
+    }
+
+    #[test]
+    fn test_cleanup_claude_setup_removes_commands() {
+        let tmp = tempfile::tempdir().unwrap();
+        let commands_dir = tmp.path().join(".claude").join("commands");
+        std::fs::create_dir_all(&commands_dir).unwrap();
+
+        let pkg_dir = commands_dir.join("sheplu--command-audit");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(pkg_dir.join("audit.md"), "audit content").unwrap();
+
+        cleanup_claude_setup(tmp.path(), "@sheplu/command-audit");
+
+        assert!(!pkg_dir.exists());
+    }
+
+    #[test]
+    fn test_cleanup_claude_setup_removes_rules() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rules_dir = tmp.path().join(".claude").join("rules");
+        std::fs::create_dir_all(&rules_dir).unwrap();
+
+        let pkg_dir = rules_dir.join("acme--my-rule");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(pkg_dir.join("lint.md"), "rule content").unwrap();
+
+        cleanup_claude_setup(tmp.path(), "@acme/my-rule");
+
+        assert!(!pkg_dir.exists());
     }
 
     #[test]

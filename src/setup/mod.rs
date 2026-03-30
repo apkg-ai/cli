@@ -202,7 +202,10 @@ pub fn resolve_system_prompt(value: &str, install_dir: &Path) -> String {
 
 /// Returns true if the package type supports tool setup.
 fn is_setup_eligible(package_type: &PackageType) -> bool {
-    matches!(package_type, PackageType::Skill | PackageType::Agent)
+    matches!(
+        package_type,
+        PackageType::Skill | PackageType::Agent | PackageType::Command | PackageType::Rule
+    )
 }
 
 /// Run post-install setup for detected AI tools.
@@ -481,8 +484,8 @@ mod tests {
     fn test_is_setup_eligible() {
         assert!(is_setup_eligible(&PackageType::Skill));
         assert!(is_setup_eligible(&PackageType::Agent));
-        assert!(!is_setup_eligible(&PackageType::Command));
-        assert!(!is_setup_eligible(&PackageType::Rule));
+        assert!(is_setup_eligible(&PackageType::Command));
+        assert!(is_setup_eligible(&PackageType::Rule));
     }
 
     #[test]
@@ -505,30 +508,38 @@ mod tests {
     }
 
     #[test]
-    fn test_run_setup_non_eligible_type() {
+    fn test_run_setup_command_type() {
         let tmp = TempDir::new().unwrap();
         fs::create_dir(tmp.path().join(".claude")).unwrap();
 
-        let install_dir = tmp.path().join("apkg_packages/my-command");
+        let install_dir = tmp.path().join("apkg_packages/@sheplu/command-audit");
         fs::create_dir_all(&install_dir).unwrap();
         let json = r#"{
-            "name": "my-command",
+            "name": "@sheplu/command-audit",
             "version": "1.0.0",
             "type": "command",
-            "description": "A command",
+            "description": "Audit command",
             "license": "MIT"
         }"#;
         fs::write(install_dir.join("apkg.json"), json).unwrap();
+        fs::write(
+            install_dir.join("audit.md"),
+            "Run a comprehensive audit.",
+        )
+        .unwrap();
 
         let report = run_setup(&SetupContext {
             project_root: tmp.path().to_path_buf(),
             install_dir,
-            target: SetupTarget::All,
+            target: SetupTarget::Only(Tool::ClaudeCode),
         });
 
-        assert_eq!(report.tools.len(), 1);
-        assert!(report.created.is_empty());
-        assert!(report.warnings.is_empty());
+        assert_eq!(report.tools, vec![Tool::ClaudeCode]);
+        assert_eq!(report.created.len(), 1);
+        assert!(tmp
+            .path()
+            .join(".claude/commands/sheplu--command-audit/audit.md")
+            .exists());
     }
 
     #[test]

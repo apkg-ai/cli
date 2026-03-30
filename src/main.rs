@@ -359,11 +359,12 @@ enum ConfigAction {
 #[derive(Clone, clap::ValueEnum)]
 enum SetupTargetArg {
     All,
-    Cursor,
+    // TODO: re-enable when ready
+    // Cursor,
     ClaudeCode,
-    Windsurf,
-    Kiro,
-    Codex,
+    // Windsurf,
+    // Kiro,
+    // Codex,
 }
 
 fn main() -> ExitCode {
@@ -496,11 +497,12 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             } else {
                 Some(match setup {
                     SetupTargetArg::All => setup::SetupTarget::All,
-                    SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
+                    // TODO: re-enable when ready
+                    // SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
                     SetupTargetArg::ClaudeCode => setup::SetupTarget::Only(setup::Tool::ClaudeCode),
-                    SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
-                    SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
-                    SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
+                    // SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
+                    // SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
+                    // SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
                 })
             };
             commands::add::run(commands::add::AddOptions {
@@ -590,11 +592,12 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             } else {
                 Some(match setup {
                     SetupTargetArg::All => setup::SetupTarget::All,
-                    SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
+                    // TODO: re-enable when ready
+                    // SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
                     SetupTargetArg::ClaudeCode => setup::SetupTarget::Only(setup::Tool::ClaudeCode),
-                    SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
-                    SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
-                    SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
+                    // SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
+                    // SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
+                    // SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
                 })
             };
             commands::install::run(commands::install::InstallOptions {
@@ -630,11 +633,12 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             } else {
                 Some(match setup {
                     SetupTargetArg::All => setup::SetupTarget::All,
-                    SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
+                    // TODO: re-enable when ready
+                    // SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
                     SetupTargetArg::ClaudeCode => setup::SetupTarget::Only(setup::Tool::ClaudeCode),
-                    SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
-                    SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
-                    SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
+                    // SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
+                    // SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
+                    // SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
                 })
             };
             commands::update::run(commands::update::UpdateOptions {

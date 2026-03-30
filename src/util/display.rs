@@ -30,3 +30,35 @@ pub fn format_size(bytes: usize) -> String {
         format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_size_bytes() {
+        assert_eq!(format_size(0), "0 B");
+        assert_eq!(format_size(512), "512 B");
+        assert_eq!(format_size(1023), "1023 B");
+    }
+
+    #[test]
+    fn test_format_size_kilobytes() {
+        assert_eq!(format_size(1024), "1.0 KB");
+        assert_eq!(format_size(1536), "1.5 KB");
+    }
+
+    #[test]
+    fn test_format_size_megabytes() {
+        assert_eq!(format_size(1024 * 1024), "1.0 MB");
+        assert_eq!(format_size(1024 * 1024 * 5 + 512 * 1024), "5.5 MB");
+    }
+
+    #[test]
+    fn test_display_functions_do_not_panic() {
+        success("test");
+        info("test");
+        warn("test");
+        label_value("key", "value");
+    }
+}

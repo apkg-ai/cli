@@ -436,4 +436,101 @@ mod tests {
             "error (test)"
         );
     }
+
+    #[test]
+    fn test_check_status_json_str() {
+        assert_eq!(CheckStatus::Ok.json_str(), "ok");
+        assert_eq!(CheckStatus::Verified.json_str(), "verified");
+        assert_eq!(CheckStatus::Unsigned.json_str(), "unsigned");
+        assert_eq!(CheckStatus::Invalid.json_str(), "invalid");
+        assert_eq!(CheckStatus::Mismatch.json_str(), "mismatch");
+        assert_eq!(
+            CheckStatus::Error("oops".to_string()).json_str(),
+            "error: oops"
+        );
+    }
+
+    #[test]
+    fn test_check_status_is_ok_or_verified() {
+        assert!(CheckStatus::Ok.is_ok_or_verified());
+        assert!(CheckStatus::Verified.is_ok_or_verified());
+        assert!(!CheckStatus::Unsigned.is_ok_or_verified());
+        assert!(!CheckStatus::Invalid.is_ok_or_verified());
+        assert!(!CheckStatus::Mismatch.is_ok_or_verified());
+        assert!(!CheckStatus::Error("x".to_string()).is_ok_or_verified());
+    }
+
+    fn make_result(
+        name: &str,
+        version: &str,
+        integrity: CheckStatus,
+        signature: CheckStatus,
+        provenance: &str,
+    ) -> PackageResult {
+        PackageResult {
+            name: name.to_string(),
+            version: version.to_string(),
+            integrity,
+            signature,
+            provenance: provenance.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_print_table_all_ok() {
+        let results = vec![
+            make_result("@test/foo", "1.0.0", CheckStatus::Ok, CheckStatus::Verified, "verified"),
+            make_result("@test/bar", "2.0.0", CheckStatus::Ok, CheckStatus::Verified, "verified (github-actions)"),
+        ];
+        print_table(&results);
+    }
+
+    #[test]
+    fn test_print_table_mixed() {
+        let results = vec![
+            make_result("@test/ok", "1.0.0", CheckStatus::Ok, CheckStatus::Verified, "verified"),
+            make_result("@test/unsigned", "1.0.0", CheckStatus::Ok, CheckStatus::Unsigned, "none"),
+            make_result("@test/invalid", "1.0.0", CheckStatus::Mismatch, CheckStatus::Invalid, "none"),
+            make_result("@test/error", "1.0.0", CheckStatus::Error("download failed".into()), CheckStatus::Unsigned, "none"),
+        ];
+        print_table(&results);
+    }
+
+    #[test]
+    fn test_print_table_all_unsigned() {
+        let results = vec![
+            make_result("pkg-a", "1.0.0", CheckStatus::Ok, CheckStatus::Unsigned, "none"),
+            make_result("pkg-b", "2.0.0", CheckStatus::Ok, CheckStatus::Unsigned, "none"),
+        ];
+        print_table(&results);
+    }
+
+    #[test]
+    fn test_print_json_all_ok() {
+        let results = vec![
+            make_result("@test/foo", "1.0.0", CheckStatus::Ok, CheckStatus::Verified, "verified"),
+        ];
+        print_json(&results);
+    }
+
+    #[test]
+    fn test_print_json_mixed() {
+        let results = vec![
+            make_result("@test/ok", "1.0.0", CheckStatus::Ok, CheckStatus::Verified, "verified"),
+            make_result("@test/bad", "2.0.0", CheckStatus::Mismatch, CheckStatus::Invalid, "none"),
+        ];
+        print_json(&results);
+    }
+
+    #[test]
+    fn test_print_json_empty() {
+        let results: Vec<PackageResult> = vec![];
+        print_json(&results);
+    }
+
+    #[test]
+    fn test_print_table_empty() {
+        let results: Vec<PackageResult> = vec![];
+        print_table(&results);
+    }
 }

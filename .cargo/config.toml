@@ -1,0 +1,2 @@
+[alias]
+test-coverage = "llvm-cov --fail-under-lines 70"

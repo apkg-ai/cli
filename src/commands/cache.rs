@@ -116,3 +116,6 @@ fn run_verify() -> Result<(), AppError> {
 
     Ok(())
 }
+
+// NOTE: Tests for run() that modify APKG_CACHE_DIR are in tests/cli.rs
+// to avoid env var race conditions with config::cache tests.

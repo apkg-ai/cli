@@ -211,6 +211,9 @@ enum Commands {
         shell: clap_complete::Shell,
     },
 
+    /// Add apkg to your shell PATH
+    AddToPath,
+
     /// Verify signatures and integrity of installed packages
     Verify {
         /// Package name. Omit to verify all installed packages.
@@ -375,6 +378,18 @@ fn main() -> ExitCode {
         let mut cmd = Cli::command();
         clap_complete::generate(shell, &mut cmd, "apkg", &mut std::io::stdout());
         return ExitCode::SUCCESS;
+    }
+
+    // Handle add-to-path synchronously — no async runtime needed
+    if let Commands::AddToPath = cli.command {
+        return match commands::add_to_path::run() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                let report = miette::Report::new(e);
+                eprintln!("{report:?}");
+                ExitCode::FAILURE
+            }
+        };
     }
 
     let rt = match tokio::runtime::Runtime::new() {
@@ -658,7 +673,7 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             })
             .await
         }
-        Commands::Completions { .. } => unreachable!(),
+        Commands::Completions { .. } | Commands::AddToPath => unreachable!(),
         Commands::Verify {
             ref package,
             json,

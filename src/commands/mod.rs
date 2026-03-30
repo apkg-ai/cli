@@ -1,4 +1,5 @@
 pub mod add;
+pub mod add_to_path;
 pub mod cache;
 pub mod config;
 pub mod deprecate;

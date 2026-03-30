@@ -21,7 +21,11 @@ pub fn setup_claude(
     fs::create_dir_all(&target_dir)
         .map_err(|e| format!("Failed to create .claude/{type_dir}/: {e}"))?;
 
-    let md_files = find_definition_files(install_dir);
+    let require_frontmatter = matches!(
+        info.package_type,
+        PackageType::Skill | PackageType::Agent
+    );
+    let md_files = find_definition_files(install_dir, require_frontmatter);
 
     let pkg_stem = config_file_stem(&info.name);
     let sub_dir = target_dir.join(&pkg_stem);
@@ -61,7 +65,7 @@ pub fn setup_claude(
 
 /// Find `.md` files in `install_dir` that contain YAML frontmatter and are
 /// likely agent/skill definitions (not documentation).
-fn find_definition_files(install_dir: &Path) -> Vec<PathBuf> {
+fn find_definition_files(install_dir: &Path, require_frontmatter: bool) -> Vec<PathBuf> {
     let Ok(entries) = fs::read_dir(install_dir) else {
         return Vec::new();
     };
@@ -81,6 +85,9 @@ fn find_definition_files(install_dir: &Path) -> Vec<PathBuf> {
             !excluded.contains(&lower.as_str())
         })
         .filter(|e| {
+            if !require_frontmatter {
+                return true;
+            }
             fs::read_to_string(e.path())
                 .map(|c| c.starts_with("---\n") || c.starts_with("---\r\n"))
                 .unwrap_or(false)
@@ -102,7 +109,12 @@ fn generate_claude_command(install_dir: &Path, info: &PackageInfo) -> String {
     match info.package_type {
         PackageType::Skill => write_skill_section(&mut out, info),
         PackageType::Agent => write_agent_section(&mut out, install_dir, info),
-        _ => {}
+        PackageType::Command => {
+            out.push_str("\nUse this command as a slash command in Claude Code.\n");
+        }
+        PackageType::Rule => {
+            out.push_str("\nThis rule is applied automatically by Claude Code.\n");
+        }
     }
 
     // Entry point
@@ -125,7 +137,12 @@ fn generate_claude_command(install_dir: &Path, info: &PackageInfo) -> String {
                 "\nUse this agent for tasks described in its system prompt and tool set.\n",
             );
         }
-        _ => {}
+        PackageType::Command => {
+            out.push_str("\nInvoke this command with the corresponding slash command.\n");
+        }
+        PackageType::Rule => {
+            out.push_str("\nThis rule is automatically active in the project.\n");
+        }
     }
 
     // Install location
@@ -333,9 +350,78 @@ mod tests {
         fs::write(tmp.path().join("notes.md"), "No frontmatter").unwrap();
         fs::write(tmp.path().join("other.txt"), "---\nfake\n---\n").unwrap();
 
-        let files = find_definition_files(tmp.path());
+        let files = find_definition_files(tmp.path(), true);
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].file_name().unwrap(), "agent.md");
+    }
+
+    #[test]
+    fn test_find_definition_files_no_frontmatter_required() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("audit.md"), "Run a comprehensive audit...").unwrap();
+        fs::write(tmp.path().join("README.md"), "Project readme").unwrap();
+        fs::write(tmp.path().join("other.txt"), "not markdown").unwrap();
+
+        let files = find_definition_files(tmp.path(), false);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_name().unwrap(), "audit.md");
+    }
+
+    #[test]
+    fn test_setup_claude_command_copies_plain_md() {
+        let tmp = TempDir::new().unwrap();
+        let install_dir = tmp.path().join("apkg_packages/@sheplu/command-audit");
+        fs::create_dir_all(&install_dir).unwrap();
+        fs::write(
+            install_dir.join("audit.md"),
+            "Run a comprehensive audit of the project.",
+        )
+        .unwrap();
+
+        let info = PackageInfo {
+            name: "@sheplu/command-audit".to_string(),
+            package_type: PackageType::Command,
+            description: "Audit command".to_string(),
+            main: None,
+            skill: None,
+            agent: None,
+        };
+
+        let paths = setup_claude(tmp.path(), &install_dir, &info).unwrap();
+        assert_eq!(paths.len(), 1);
+        assert!(paths[0].exists());
+        assert_eq!(paths[0].file_name().unwrap(), "audit.md");
+        assert!(paths[0]
+            .parent()
+            .unwrap()
+            .ends_with("commands/sheplu--command-audit"));
+        let content = fs::read_to_string(&paths[0]).unwrap();
+        assert!(content.contains("Run a comprehensive audit"));
+    }
+
+    #[test]
+    fn test_setup_claude_command_fallback_when_no_md() {
+        let tmp = TempDir::new().unwrap();
+        let install_dir = tmp.path().join("apkg_packages/my-command");
+        fs::create_dir_all(&install_dir).unwrap();
+
+        let info = PackageInfo {
+            name: "my-command".to_string(),
+            package_type: PackageType::Command,
+            description: "A useful command".to_string(),
+            main: None,
+            skill: None,
+            agent: None,
+        };
+
+        let paths = setup_claude(tmp.path(), &install_dir, &info).unwrap();
+        assert_eq!(paths.len(), 1);
+        assert!(paths[0].exists());
+        assert_eq!(paths[0].file_name().unwrap(), "my-command.md");
+        assert!(paths[0]
+            .parent()
+            .unwrap()
+            .ends_with("commands/my-command"));
     }
 
     #[test]

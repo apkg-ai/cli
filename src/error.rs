@@ -105,3 +105,24 @@ impl From<serde_json::Error> for AppError {
         AppError::Other(format!("JSON error: {err}"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_serde_json_error() {
+        let err: Result<serde_json::Value, _> = serde_json::from_str("not json");
+        let app_err: AppError = err.unwrap_err().into();
+        assert!(app_err.to_string().contains("JSON error"));
+    }
+
+    #[test]
+    fn test_error_display() {
+        assert_eq!(
+            AppError::AuthRequired.to_string(),
+            "Authentication required. Run `apkg login` first."
+        );
+        assert!(AppError::Network("timeout".into()).to_string().contains("timeout"));
+    }
+}

@@ -919,3 +919,416 @@ fn test_verify_empty_lockfile() {
         .success()
         .stderr(predicate::str::contains("No packages to verify"));
 }
+
+// --- config ---
+
+#[test]
+fn test_config_set_and_get() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["config", "set", "registry", "http://example.com"])
+        .env("HOME", tmp.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Set registry"));
+
+    cmd()
+        .args(["config", "get", "registry"])
+        .env("HOME", tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("http://example.com"));
+}
+
+#[test]
+fn test_config_list_empty() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["config", "list"])
+        .env("HOME", tmp.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("No configuration set"));
+}
+
+#[test]
+fn test_config_list_with_entries() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["config", "set", "registry", "http://example.com"])
+        .env("HOME", tmp.path())
+        .assert()
+        .success();
+    cmd()
+        .args(["config", "list"])
+        .env("HOME", tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("registry"));
+}
+
+#[test]
+fn test_config_delete() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["config", "set", "registry", "http://example.com"])
+        .env("HOME", tmp.path())
+        .assert()
+        .success();
+    cmd()
+        .args(["config", "delete", "registry"])
+        .env("HOME", tmp.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Deleted registry"));
+}
+
+#[test]
+fn test_config_delete_nonexistent() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["config", "delete", "registry"])
+        .env("HOME", tmp.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Config key not set"));
+}
+
+#[test]
+fn test_config_get_nonexistent() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["config", "get", "registry"])
+        .env("HOME", tmp.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Config key not set"));
+}
+
+#[test]
+fn test_config_set_invalid_key() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["config", "set", "badkey", "value"])
+        .env("HOME", tmp.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Unknown config key"));
+}
+
+#[test]
+fn test_config_set_default_setup() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["config", "set", "defaultSetup.cursor", "true"])
+        .env("HOME", tmp.path())
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_config_set_services() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["config", "set", "services.auth", "http://auth.example.com"])
+        .env("HOME", tmp.path())
+        .assert()
+        .success();
+}
+
+// --- add-to-path ---
+
+#[test]
+fn test_add_to_path() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .arg("add-to-path")
+        .env("HOME", tmp.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("PATH entry"));
+}
+
+#[test]
+fn test_add_to_path_idempotent() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .arg("add-to-path")
+        .env("HOME", tmp.path())
+        .assert()
+        .success();
+    // Second call should also succeed (idempotent)
+    cmd()
+        .arg("add-to-path")
+        .env("HOME", tmp.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("already"));
+}
+
+// --- key ---
+
+#[test]
+fn test_key_help() {
+    cmd()
+        .args(["key", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("signing keys"));
+}
+
+#[test]
+fn test_key_generate() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["key", "generate", "--name", "test-key"])
+        .env("HOME", tmp.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Generated Ed25519 signing key"));
+}
+
+#[test]
+fn test_key_list_local_empty() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["key", "list", "--local"])
+        .env("HOME", tmp.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("No local keys found"));
+}
+
+#[test]
+fn test_key_list_local_with_keys() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["key", "generate", "--name", "my-key"])
+        .env("HOME", tmp.path())
+        .assert()
+        .success();
+    cmd()
+        .args(["key", "list", "--local"])
+        .env("HOME", tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("my-key"));
+}
+
+// --- token error paths ---
+
+#[test]
+fn test_token_create_no_auth() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["token", "create", "--name", "test-token"])
+        .env("HOME", tmp.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Authentication required"));
+}
+
+#[test]
+fn test_token_revoke_no_auth() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["token", "revoke", "some-id"])
+        .env("HOME", tmp.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Authentication required"));
+}
+
+// --- cache with data (using the binary to populate) ---
+
+#[test]
+fn test_cache_operations_lifecycle() {
+    let tmp = TempDir::new().unwrap();
+    let cache_dir = tmp.path().join("cache");
+
+    // List on fresh cache
+    cmd()
+        .args(["cache", "list"])
+        .env("APKG_CACHE_DIR", &cache_dir)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Cache is empty"));
+
+    // Verify on fresh cache
+    cmd()
+        .args(["cache", "verify"])
+        .env("APKG_CACHE_DIR", &cache_dir)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("nothing to verify"));
+
+    // Clean on fresh cache
+    cmd()
+        .args(["cache", "clean"])
+        .env("APKG_CACHE_DIR", &cache_dir)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("already empty"));
+}
+
+// --- search/info no-auth paths ---
+
+#[test]
+fn test_info_no_package() {
+    cmd()
+        .args(["info"])
+        .assert()
+        .failure();
+}
+
+// --- key operations ---
+
+#[test]
+fn test_key_register_no_auth() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["key", "register"])
+        .env("HOME", tmp.path())
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_key_revoke_no_auth() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["key", "revoke", "some-id", "--reason", "unspecified"])
+        .env("HOME", tmp.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Authentication required"));
+}
+
+// --- link scoped package ---
+
+#[test]
+fn test_link_scoped_package() {
+    let lib_dir = TempDir::new().unwrap();
+    let app_dir = TempDir::new().unwrap();
+    let home = TempDir::new().unwrap();
+
+    let lib_manifest = r#"{
+  "name": "@myorg/my-lib",
+  "version": "1.0.0",
+  "type": "skill",
+  "description": "A scoped lib",
+  "license": "MIT"
+}
+"#;
+    std::fs::write(lib_dir.path().join("apkg.json"), lib_manifest).unwrap();
+
+    let app_manifest = r#"{
+  "name": "my-app",
+  "version": "0.1.0",
+  "type": "agent",
+  "description": "An app",
+  "license": "MIT"
+}
+"#;
+    std::fs::write(app_dir.path().join("apkg.json"), app_manifest).unwrap();
+
+    // Register globally first
+    cmd()
+        .arg("link")
+        .current_dir(lib_dir.path())
+        .env("HOME", home.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Linked @myorg/my-lib globally"));
+
+    // Link by name in app
+    cmd()
+        .args(["link", "@myorg/my-lib"])
+        .current_dir(app_dir.path())
+        .env("HOME", home.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Linked @myorg/my-lib"));
+
+    let symlink_path = app_dir.path().join("apkg_packages/@myorg/my-lib");
+    assert!(symlink_path.symlink_metadata().is_ok(), "symlink should exist for scoped package");
+}
+
+#[test]
+fn test_unlink_scoped_package() {
+    let lib_dir = TempDir::new().unwrap();
+    let app_dir = TempDir::new().unwrap();
+    let home = TempDir::new().unwrap();
+
+    let lib_manifest = r#"{
+  "name": "@scope/pkg",
+  "version": "1.0.0",
+  "type": "skill",
+  "description": "A scoped lib",
+  "license": "MIT"
+}
+"#;
+    std::fs::write(lib_dir.path().join("apkg.json"), lib_manifest).unwrap();
+
+    let app_manifest = r#"{
+  "name": "my-app",
+  "version": "0.1.0",
+  "type": "agent",
+  "description": "An app",
+  "license": "MIT"
+}
+"#;
+    std::fs::write(app_dir.path().join("apkg.json"), app_manifest).unwrap();
+
+    // Register and link
+    cmd()
+        .arg("link")
+        .current_dir(lib_dir.path())
+        .env("HOME", home.path())
+        .assert()
+        .success();
+    cmd()
+        .args(["link", "@scope/pkg"])
+        .current_dir(app_dir.path())
+        .env("HOME", home.path())
+        .assert()
+        .success();
+
+    // Now unlink
+    cmd()
+        .args(["unlink", "@scope/pkg"])
+        .current_dir(app_dir.path())
+        .env("HOME", home.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Unlinked @scope/pkg"));
+
+    let symlink_path = app_dir.path().join("apkg_packages/@scope/pkg");
+    assert!(!symlink_path.exists(), "symlink should be removed");
+}
+
+// --- deprecate with credentials (hits more code paths) ---
+
+#[test]
+fn test_deprecate_undo_no_auth() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["deprecate", "some-pkg", "--undo"])
+        .env("HOME", tmp.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Authentication required"));
+}
+
+// --- key list remote no auth ---
+
+#[test]
+fn test_key_list_no_auth() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["key", "list"])
+        .env("HOME", tmp.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Authentication required"));
+}

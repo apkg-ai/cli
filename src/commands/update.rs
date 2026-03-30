@@ -343,4 +343,45 @@ mod tests {
         assert!(filtered.packages.contains_key("foo@1.0.0"));
         assert!(filtered.packages.contains_key("bar@2.0.0"));
     }
+
+    fn make_change(name: &str, current: &str, updated: &str) -> Change {
+        Change {
+            name: name.to_string(),
+            current: current.to_string(),
+            updated: updated.to_string(),
+            old_range: format!("^{current}"),
+            new_range: format!("^{updated}"),
+        }
+    }
+
+    #[test]
+    fn test_print_changes_table_without_ranges() {
+        let changes = vec![
+            make_change("@test/foo", "1.0.0", "1.1.0"),
+            make_change("@test/bar", "2.0.0", "3.0.0"),
+        ];
+        print_changes_table(&changes, false);
+    }
+
+    #[test]
+    fn test_print_changes_table_with_ranges() {
+        let changes = vec![
+            make_change("@test/foo", "1.0.0", "1.1.0"),
+            make_change("@test/bar", "2.0.0", "3.0.0"),
+        ];
+        print_changes_table(&changes, true);
+    }
+
+    #[test]
+    fn test_print_changes_table_single() {
+        let changes = vec![make_change("pkg", "1.0.0", "1.0.1")];
+        print_changes_table(&changes, false);
+        print_changes_table(&changes, true);
+    }
+
+    #[test]
+    fn test_print_changes_table_empty() {
+        print_changes_table(&[], false);
+        print_changes_table(&[], true);
+    }
 }

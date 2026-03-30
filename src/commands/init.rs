@@ -144,3 +144,44 @@ fn validate_package_name(name: &str) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_package_names() {
+        assert!(validate_package_name("@user/pkg").is_ok());
+        assert!(validate_package_name("@org/a-b.c_d").is_ok());
+        assert!(validate_package_name("@a/b").is_ok());
+        assert!(validate_package_name("@my-org/my-package").is_ok());
+        assert!(validate_package_name("@user/pkg123").is_ok());
+    }
+
+    #[test]
+    fn test_invalid_no_scope() {
+        assert!(validate_package_name("no-scope").is_err());
+    }
+
+    #[test]
+    fn test_invalid_empty_name() {
+        assert!(validate_package_name("@user/").is_err());
+    }
+
+    #[test]
+    fn test_invalid_empty_scope() {
+        assert!(validate_package_name("@/pkg").is_err());
+    }
+
+    #[test]
+    fn test_invalid_uppercase() {
+        assert!(validate_package_name("@USER/pkg").is_err());
+        assert!(validate_package_name("@user/Pkg").is_err());
+    }
+
+    #[test]
+    fn test_invalid_too_long() {
+        let long = format!("@user/{}", "a".repeat(210));
+        assert!(validate_package_name(&long).is_err());
+    }
+}

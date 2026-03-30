@@ -330,4 +330,23 @@ mod tests {
     fn test_normalize_range_empty() {
         assert_eq!(normalize_range(""), "");
     }
+
+    #[test]
+    fn test_normalize_range_whitespace() {
+        assert_eq!(normalize_range("  ^1.0.0  "), "^1.0.0");
+        assert_eq!(normalize_range("  1.2.3  "), "=1.2.3");
+    }
+
+    #[test]
+    fn test_normalize_range_less_than() {
+        assert_eq!(normalize_range("<2.0.0"), "<2.0.0");
+    }
+
+    #[test]
+    fn test_resolve_best_version_all_yanked() {
+        let meta = make_metadata("pkg", &[("1.0.0", true), ("1.1.0", true)]);
+        let req = VersionReq::parse("^1.0.0").unwrap();
+        let result = resolve_best_version(&meta, &req);
+        assert!(result.is_err());
+    }
 }

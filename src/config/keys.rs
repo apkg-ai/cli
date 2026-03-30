@@ -120,4 +120,109 @@ mod tests {
         assert_eq!(loaded.name, "test-key");
         assert_eq!(loaded.public_key, "cHVibGlj");
     }
+
+    fn make_test_key(id: &str, name: &str) -> StoredKey {
+        StoredKey {
+            key_id: id.to_string(),
+            name: name.to_string(),
+            public_key: "cHVibGlj".to_string(),
+            private_key: "cHJpdmF0ZQ==".to_string(),
+            created_at: "2026-03-14T12:00:00Z".to_string(),
+        }
+    }
+
+    /// Save a key to a specific directory (bypasses HOME env var).
+    fn save_to(dir: &std::path::Path, key: &StoredKey) {
+        fs::create_dir_all(dir).unwrap();
+        let filename = format!("{}.json", key_filename(&key.key_id));
+        let content = serde_json::to_string_pretty(key).unwrap();
+        fs::write(dir.join(filename), content).unwrap();
+    }
+
+    /// Load a key from a specific directory (bypasses HOME env var).
+    fn load_from(dir: &std::path::Path, key_id: &str) -> Option<StoredKey> {
+        let filename = format!("{}.json", key_filename(key_id));
+        let path = dir.join(filename);
+        if !path.exists() {
+            return None;
+        }
+        let content = fs::read_to_string(&path).unwrap();
+        Some(serde_json::from_str(&content).unwrap())
+    }
+
+    /// List keys from a specific directory.
+    fn list_from(dir: &std::path::Path) -> Vec<StoredKey> {
+        if !dir.exists() {
+            return Vec::new();
+        }
+        let mut keys = Vec::new();
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                let content = fs::read_to_string(&path).unwrap();
+                if let Ok(key) = serde_json::from_str::<StoredKey>(&content) {
+                    keys.push(key);
+                }
+            }
+        }
+        keys.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        keys
+    }
+
+    #[test]
+    fn test_save_and_load_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("keys");
+        let key = make_test_key("SHA256:abc123", "my-key");
+        save_to(&dir, &key);
+
+        let loaded = load_from(&dir, "SHA256:abc123").unwrap();
+        assert_eq!(loaded.key_id, "SHA256:abc123");
+        assert_eq!(loaded.name, "my-key");
+        assert_eq!(loaded.public_key, "cHVibGlj");
+    }
+
+    #[test]
+    fn test_load_nonexistent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("keys");
+        fs::create_dir_all(&dir).unwrap();
+        assert!(load_from(&dir, "SHA256:nope").is_none());
+    }
+
+    #[test]
+    fn test_list_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("keys");
+        assert!(list_from(&dir).is_empty());
+    }
+
+    #[test]
+    fn test_list_multiple() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("keys");
+        save_to(&dir, &make_test_key("SHA256:key1", "first"));
+        save_to(&dir, &make_test_key("SHA256:key2", "second"));
+
+        let keys = list_from(&dir);
+        assert_eq!(keys.len(), 2);
+    }
+
+    #[test]
+    fn test_delete_existing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("keys");
+        save_to(&dir, &make_test_key("SHA256:del", "to-delete"));
+
+        let filename = format!("{}.json", key_filename("SHA256:del"));
+        let path = dir.join(&filename);
+        assert!(path.exists());
+        fs::remove_file(&path).unwrap();
+        assert!(load_from(&dir, "SHA256:del").is_none());
+    }
+
+    #[test]
+    fn test_key_filename_special_chars() {
+        assert_eq!(key_filename("SHA256:a+b/c:d"), "SHA256_a_b_c_d");
+    }
 }

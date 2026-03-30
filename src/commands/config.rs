@@ -73,3 +73,56 @@ fn validate_key(key: &str) -> Result<(), AppError> {
         )))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_key_registry() {
+        assert!(validate_key("registry").is_ok());
+    }
+
+    #[test]
+    fn test_validate_key_services() {
+        assert!(validate_key("services.auth").is_ok());
+        assert!(validate_key("services.packages").is_ok());
+    }
+
+    #[test]
+    fn test_validate_key_default_setup_known_tools() {
+        for tool in KNOWN_SETUP_TOOLS {
+            assert!(validate_key(&format!("defaultSetup.{tool}")).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_validate_key_default_setup_unknown_tool() {
+        let err = validate_key("defaultSetup.unknown").unwrap_err();
+        assert!(err.to_string().contains("Unknown tool"));
+    }
+
+    #[test]
+    fn test_validate_key_unknown() {
+        let err = validate_key("badkey").unwrap_err();
+        assert!(err.to_string().contains("Unknown config key"));
+    }
+
+    #[test]
+    fn test_validate_key_empty() {
+        assert!(validate_key("").is_err());
+    }
+
+    // NOTE: Tests for run() that require HOME env var are in tests/cli.rs
+    // to avoid env var race conditions with other test modules.
+
+    #[test]
+    fn test_run_set_invalid_key() {
+        // validate_key fires before any HOME-dependent I/O
+        let result = run(ConfigAction::Set {
+            key: "invalid",
+            value: "value",
+        });
+        assert!(result.is_err());
+    }
+}

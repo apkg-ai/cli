@@ -11,22 +11,24 @@ use crate::error::AppError;
 pub enum PackageType {
     Skill,
     Agent,
-    McpServer,
-    Prompt,
-    Config,
-    Library,
-    Composite,
+    // McpServer,
+    Command,
+    // Config,
+    // Library,
+    // Composite,
+    Rule,
 }
 
 impl PackageType {
     pub const VARIANTS: &[&str] = &[
         "skill",
         "agent",
-        "mcp-server",
-        "prompt",
-        "config",
-        "library",
-        "composite",
+        // "mcp-server",
+        "command",
+        // "config",
+        // "library",
+        // "composite",
+        "rule",
     ];
 
     /// Plural directory name used for tool setup (e.g. `.claude/skills/`).
@@ -34,11 +36,12 @@ impl PackageType {
         match self {
             PackageType::Skill => "skills",
             PackageType::Agent => "agents",
-            PackageType::McpServer => "mcp-servers",
-            PackageType::Prompt => "prompts",
-            PackageType::Config => "configs",
-            PackageType::Library => "libraries",
-            PackageType::Composite => "composites",
+            // PackageType::McpServer => "mcp-servers",
+            PackageType::Command => "commands",
+            // PackageType::Config => "configs",
+            // PackageType::Library => "libraries",
+            // PackageType::Composite => "composites",
+            PackageType::Rule => "rules",
         }
     }
 }
@@ -48,11 +51,12 @@ impl std::fmt::Display for PackageType {
         let s = match self {
             PackageType::Skill => "skill",
             PackageType::Agent => "agent",
-            PackageType::McpServer => "mcp-server",
-            PackageType::Prompt => "prompt",
-            PackageType::Config => "config",
-            PackageType::Library => "library",
-            PackageType::Composite => "composite",
+            // PackageType::McpServer => "mcp-server",
+            PackageType::Command => "command",
+            // PackageType::Config => "config",
+            // PackageType::Library => "library",
+            // PackageType::Composite => "composite",
+            PackageType::Rule => "rule",
         };
         write!(f, "{s}")
     }
@@ -151,11 +155,11 @@ mod tests {
         let json = r#"{
             "name": "@acme/summarizer",
             "version": "2.0.0",
-            "type": "mcp-server",
-            "description": "MCP server",
+            "type": "command",
+            "description": "A command",
             "license": "Apache-2.0",
             "readme": "README.md",
-            "keywords": ["ai", "mcp"],
+            "keywords": ["ai", "command"],
             "author": "acme",
             "repository": "https://github.com/acme/summarizer",
             "homepage": "https://acme.dev",
@@ -165,8 +169,8 @@ mod tests {
         }"#;
         let m: Manifest = serde_json::from_str(json).unwrap();
         assert_eq!(m.name, "@acme/summarizer");
-        assert!(matches!(m.package_type, PackageType::McpServer));
-        assert_eq!(m.keywords.unwrap(), vec!["ai", "mcp"]);
+        assert!(matches!(m.package_type, PackageType::Command));
+        assert_eq!(m.keywords.unwrap(), vec!["ai", "command"]);
         assert_eq!(m.dependencies.unwrap().len(), 1);
     }
 

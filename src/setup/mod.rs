@@ -481,11 +481,8 @@ mod tests {
     fn test_is_setup_eligible() {
         assert!(is_setup_eligible(&PackageType::Skill));
         assert!(is_setup_eligible(&PackageType::Agent));
-        assert!(!is_setup_eligible(&PackageType::McpServer));
-        assert!(!is_setup_eligible(&PackageType::Prompt));
-        assert!(!is_setup_eligible(&PackageType::Config));
-        assert!(!is_setup_eligible(&PackageType::Library));
-        assert!(!is_setup_eligible(&PackageType::Composite));
+        assert!(!is_setup_eligible(&PackageType::Command));
+        assert!(!is_setup_eligible(&PackageType::Rule));
     }
 
     #[test]
@@ -512,13 +509,13 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         fs::create_dir(tmp.path().join(".claude")).unwrap();
 
-        let install_dir = tmp.path().join("apkg_packages/mcp-server");
+        let install_dir = tmp.path().join("apkg_packages/my-command");
         fs::create_dir_all(&install_dir).unwrap();
         let json = r#"{
-            "name": "my-server",
+            "name": "my-command",
             "version": "1.0.0",
-            "type": "mcp-server",
-            "description": "An MCP server",
+            "type": "command",
+            "description": "A command",
             "license": "MIT"
         }"#;
         fs::write(install_dir.join("apkg.json"), json).unwrap();

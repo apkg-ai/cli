@@ -362,9 +362,9 @@ enum ConfigAction {
 #[derive(Clone, clap::ValueEnum)]
 enum SetupTargetArg {
     All,
-    // TODO: re-enable when ready
-    // Cursor,
+    Cursor,
     ClaudeCode,
+    // TODO: re-enable when ready
     // Windsurf,
     // Kiro,
     // Codex,
@@ -512,9 +512,9 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             } else {
                 Some(match setup {
                     SetupTargetArg::All => setup::SetupTarget::All,
-                    // TODO: re-enable when ready
-                    // SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
+                    SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
                     SetupTargetArg::ClaudeCode => setup::SetupTarget::Only(setup::Tool::ClaudeCode),
+                    // TODO: re-enable when ready
                     // SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
                     // SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
                     // SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
@@ -607,9 +607,9 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             } else {
                 Some(match setup {
                     SetupTargetArg::All => setup::SetupTarget::All,
-                    // TODO: re-enable when ready
-                    // SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
+                    SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
                     SetupTargetArg::ClaudeCode => setup::SetupTarget::Only(setup::Tool::ClaudeCode),
+                    // TODO: re-enable when ready
                     // SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
                     // SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
                     // SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
@@ -648,9 +648,9 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             } else {
                 Some(match setup {
                     SetupTargetArg::All => setup::SetupTarget::All,
-                    // TODO: re-enable when ready
-                    // SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
+                    SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
                     SetupTargetArg::ClaudeCode => setup::SetupTarget::Only(setup::Tool::ClaudeCode),
+                    // TODO: re-enable when ready
                     // SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
                     // SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
                     // SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),

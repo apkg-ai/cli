@@ -1,8 +1,9 @@
 pub mod claude;
-pub mod codex;
-pub mod cursor;
-pub mod kiro;
-pub mod windsurf;
+// TODO: re-enable when ready
+// pub mod codex;
+// pub mod cursor;
+// pub mod kiro;
+// pub mod windsurf;
 
 use std::fmt;
 use std::fs;
@@ -81,22 +82,24 @@ fn default_required() -> bool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
-    Cursor,
+    // TODO: re-enable when ready
+    // Cursor,
     ClaudeCode,
-    Windsurf,
-    Kiro,
-    Codex,
+    // Windsurf,
+    // Kiro,
+    // Codex,
 }
 
 impl Tool {
     /// Map a config key (e.g. "cursor", "claude-code") to a Tool variant.
     pub fn from_key(key: &str) -> Option<Self> {
         match key {
-            "cursor" => Some(Tool::Cursor),
+            // TODO: re-enable when ready
+            // "cursor" => Some(Tool::Cursor),
             "claude-code" => Some(Tool::ClaudeCode),
-            "windsurf" => Some(Tool::Windsurf),
-            "kiro" => Some(Tool::Kiro),
-            "codex" => Some(Tool::Codex),
+            // "windsurf" => Some(Tool::Windsurf),
+            // "kiro" => Some(Tool::Kiro),
+            // "codex" => Some(Tool::Codex),
             _ => None,
         }
     }
@@ -105,11 +108,12 @@ impl Tool {
 impl fmt::Display for Tool {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Tool::Cursor => write!(f, "Cursor"),
+            // TODO: re-enable when ready
+            // Tool::Cursor => write!(f, "Cursor"),
             Tool::ClaudeCode => write!(f, "Claude Code"),
-            Tool::Windsurf => write!(f, "Windsurf"),
-            Tool::Kiro => write!(f, "Kiro"),
-            Tool::Codex => write!(f, "Codex"),
+            // Tool::Windsurf => write!(f, "Windsurf"),
+            // Tool::Kiro => write!(f, "Kiro"),
+            // Tool::Codex => write!(f, "Codex"),
         }
     }
 }
@@ -141,21 +145,22 @@ pub struct SetupReport {
 /// Detect which AI tools are configured in the project.
 pub fn detect_tools(project_root: &Path) -> Vec<Tool> {
     let mut tools = Vec::new();
-    if project_root.join(".cursor").is_dir() {
-        tools.push(Tool::Cursor);
-    }
+    // TODO: re-enable when ready
+    // if project_root.join(".cursor").is_dir() {
+    //     tools.push(Tool::Cursor);
+    // }
     if project_root.join(".claude").is_dir() {
         tools.push(Tool::ClaudeCode);
     }
-    if project_root.join(".windsurf").is_dir() {
-        tools.push(Tool::Windsurf);
-    }
-    if project_root.join(".kiro").is_dir() {
-        tools.push(Tool::Kiro);
-    }
-    if project_root.join(".codex").is_dir() {
-        tools.push(Tool::Codex);
-    }
+    // if project_root.join(".windsurf").is_dir() {
+    //     tools.push(Tool::Windsurf);
+    // }
+    // if project_root.join(".kiro").is_dir() {
+    //     tools.push(Tool::Kiro);
+    // }
+    // if project_root.join(".codex").is_dir() {
+    //     tools.push(Tool::Codex);
+    // }
     tools
 }
 
@@ -264,17 +269,18 @@ pub fn run_setup(ctx: &SetupContext) -> SetupReport {
             continue;
         }
 
-        let result = match tool {
-            Tool::Cursor => cursor::setup_cursor(&ctx.project_root, &ctx.install_dir, &info),
-            Tool::Windsurf => windsurf::setup_windsurf(&ctx.project_root, &ctx.install_dir, &info),
-            Tool::Kiro => kiro::setup_kiro(&ctx.project_root, &ctx.install_dir, &info),
-            Tool::Codex => codex::setup_codex(&ctx.project_root, &ctx.install_dir, &info),
-            Tool::ClaudeCode => unreachable!(),
-        };
-        match result {
-            Ok(path) => created.push(SetupAction { tool, path }),
-            Err(msg) => warnings.push(format!("Tool setup skipped ({tool}): {msg}")),
-        }
+        // TODO: re-enable when ready
+        // let result = match tool {
+        //     Tool::Cursor => cursor::setup_cursor(&ctx.project_root, &ctx.install_dir, &info),
+        //     Tool::Windsurf => windsurf::setup_windsurf(&ctx.project_root, &ctx.install_dir, &info),
+        //     Tool::Kiro => kiro::setup_kiro(&ctx.project_root, &ctx.install_dir, &info),
+        //     Tool::Codex => codex::setup_codex(&ctx.project_root, &ctx.install_dir, &info),
+        //     Tool::ClaudeCode => unreachable!(),
+        // };
+        // match result {
+        //     Ok(path) => created.push(SetupAction { tool, path }),
+        //     Err(msg) => warnings.push(format!("Tool setup skipped ({tool}): {msg}")),
+        // }
     }
 
     SetupReport {
@@ -351,13 +357,14 @@ mod tests {
         assert!(tools.is_empty());
     }
 
-    #[test]
-    fn test_detect_tools_cursor_only() {
-        let tmp = TempDir::new().unwrap();
-        fs::create_dir(tmp.path().join(".cursor")).unwrap();
-        let tools = detect_tools(tmp.path());
-        assert_eq!(tools, vec![Tool::Cursor]);
-    }
+    // TODO: re-enable when ready
+    // #[test]
+    // fn test_detect_tools_cursor_only() {
+    //     let tmp = TempDir::new().unwrap();
+    //     fs::create_dir(tmp.path().join(".cursor")).unwrap();
+    //     let tools = detect_tools(tmp.path());
+    //     assert_eq!(tools, vec![Tool::Cursor]);
+    // }
 
     #[test]
     fn test_detect_tools_claude_only() {
@@ -367,14 +374,15 @@ mod tests {
         assert_eq!(tools, vec![Tool::ClaudeCode]);
     }
 
-    #[test]
-    fn test_detect_tools_both() {
-        let tmp = TempDir::new().unwrap();
-        fs::create_dir(tmp.path().join(".cursor")).unwrap();
-        fs::create_dir(tmp.path().join(".claude")).unwrap();
-        let tools = detect_tools(tmp.path());
-        assert_eq!(tools, vec![Tool::Cursor, Tool::ClaudeCode]);
-    }
+    // TODO: re-enable when ready
+    // #[test]
+    // fn test_detect_tools_both() {
+    //     let tmp = TempDir::new().unwrap();
+    //     fs::create_dir(tmp.path().join(".cursor")).unwrap();
+    //     fs::create_dir(tmp.path().join(".claude")).unwrap();
+    //     let tools = detect_tools(tmp.path());
+    //     assert_eq!(tools, vec![Tool::Cursor, Tool::ClaudeCode]);
+    // }
 
     #[test]
     fn test_resolve_system_prompt_inline() {
@@ -502,7 +510,7 @@ mod tests {
     #[test]
     fn test_run_setup_non_eligible_type() {
         let tmp = TempDir::new().unwrap();
-        fs::create_dir(tmp.path().join(".cursor")).unwrap();
+        fs::create_dir(tmp.path().join(".claude")).unwrap();
 
         let install_dir = tmp.path().join("apkg_packages/mcp-server");
         fs::create_dir_all(&install_dir).unwrap();
@@ -530,7 +538,6 @@ mod tests {
     fn test_run_setup_creates_configs() {
         with_temp_home(|| {
             let tmp = TempDir::new().unwrap();
-            fs::create_dir(tmp.path().join(".cursor")).unwrap();
             fs::create_dir(tmp.path().join(".claude")).unwrap();
 
             let install_dir = tmp.path().join("apkg_packages/@acme/code-reviewer");
@@ -556,13 +563,9 @@ mod tests {
                 target: SetupTarget::All,
             });
 
-            assert_eq!(report.tools.len(), 2);
-            assert_eq!(report.created.len(), 2);
+            assert_eq!(report.tools.len(), 1);
+            assert_eq!(report.created.len(), 1);
             assert!(report.warnings.is_empty());
-            assert!(tmp
-                .path()
-                .join(".cursor/skills/acme--code-reviewer.mdc")
-                .exists());
             assert!(tmp
                 .path()
                 .join(".claude/skills/acme--code-reviewer.md")
@@ -573,7 +576,7 @@ mod tests {
     #[test]
     fn test_run_setup_warns_on_bad_manifest() {
         let tmp = TempDir::new().unwrap();
-        fs::create_dir(tmp.path().join(".cursor")).unwrap();
+        fs::create_dir(tmp.path().join(".claude")).unwrap();
 
         let install_dir = tmp.path().join("apkg_packages/broken");
         fs::create_dir_all(&install_dir).unwrap();
@@ -591,46 +594,47 @@ mod tests {
         assert!(report.warnings[0].contains("Tool setup skipped"));
     }
 
-    #[test]
-    fn test_run_setup_only_cursor() {
-        let tmp = TempDir::new().unwrap();
-        fs::create_dir(tmp.path().join(".cursor")).unwrap();
-        fs::create_dir(tmp.path().join(".claude")).unwrap();
-
-        let install_dir = tmp.path().join("apkg_packages/@acme/code-reviewer");
-        fs::create_dir_all(&install_dir).unwrap();
-        let json = r#"{
-            "name": "@acme/code-reviewer",
-            "version": "1.2.0",
-            "type": "skill",
-            "description": "AI-powered code review",
-            "license": "MIT",
-            "main": "src/index.ts",
-            "skill": {
-                "capabilities": ["code-review"],
-                "inputSchema": {},
-                "outputSchema": {}
-            }
-        }"#;
-        fs::write(install_dir.join("apkg.json"), json).unwrap();
-
-        let report = run_setup(&SetupContext {
-            project_root: tmp.path().to_path_buf(),
-            install_dir,
-            target: SetupTarget::Only(Tool::Cursor),
-        });
-
-        assert_eq!(report.tools, vec![Tool::Cursor]);
-        assert_eq!(report.created.len(), 1);
-        assert!(tmp
-            .path()
-            .join(".cursor/skills/acme--code-reviewer.mdc")
-            .exists());
-        assert!(!tmp
-            .path()
-            .join(".claude/skills/acme--code-reviewer.md")
-            .exists());
-    }
+    // TODO: re-enable when ready
+    // #[test]
+    // fn test_run_setup_only_cursor() {
+    //     let tmp = TempDir::new().unwrap();
+    //     fs::create_dir(tmp.path().join(".cursor")).unwrap();
+    //     fs::create_dir(tmp.path().join(".claude")).unwrap();
+    //
+    //     let install_dir = tmp.path().join("apkg_packages/@acme/code-reviewer");
+    //     fs::create_dir_all(&install_dir).unwrap();
+    //     let json = r#"{
+    //         "name": "@acme/code-reviewer",
+    //         "version": "1.2.0",
+    //         "type": "skill",
+    //         "description": "AI-powered code review",
+    //         "license": "MIT",
+    //         "main": "src/index.ts",
+    //         "skill": {
+    //             "capabilities": ["code-review"],
+    //             "inputSchema": {},
+    //             "outputSchema": {}
+    //         }
+    //     }"#;
+    //     fs::write(install_dir.join("apkg.json"), json).unwrap();
+    //
+    //     let report = run_setup(&SetupContext {
+    //         project_root: tmp.path().to_path_buf(),
+    //         install_dir,
+    //         target: SetupTarget::Only(Tool::Cursor),
+    //     });
+    //
+    //     assert_eq!(report.tools, vec![Tool::Cursor]);
+    //     assert_eq!(report.created.len(), 1);
+    //     assert!(tmp
+    //         .path()
+    //         .join(".cursor/skills/acme--code-reviewer.mdc")
+    //         .exists());
+    //     assert!(!tmp
+    //         .path()
+    //         .join(".claude/skills/acme--code-reviewer.md")
+    //         .exists());
+    // }
 
     #[test]
     fn test_run_setup_only_claude() {
@@ -707,102 +711,101 @@ mod tests {
             .exists());
     }
 
-    #[test]
-    fn test_run_setup_only_cursor_creates_dir() {
-        let tmp = TempDir::new().unwrap();
-        // No .cursor directory pre-created
-
-        let install_dir = tmp.path().join("apkg_packages/@acme/code-reviewer");
-        fs::create_dir_all(&install_dir).unwrap();
-        let json = r#"{
-            "name": "@acme/code-reviewer",
-            "version": "1.0.0",
-            "type": "skill",
-            "description": "Code review",
-            "license": "MIT",
-            "skill": {
-                "capabilities": ["code-review"],
-                "inputSchema": {},
-                "outputSchema": {}
-            }
-        }"#;
-        fs::write(install_dir.join("apkg.json"), json).unwrap();
-
-        let report = run_setup(&SetupContext {
-            project_root: tmp.path().to_path_buf(),
-            install_dir,
-            target: SetupTarget::Only(Tool::Cursor),
-        });
-
-        assert_eq!(report.tools, vec![Tool::Cursor]);
-        assert_eq!(report.created.len(), 1);
-        assert!(tmp
-            .path()
-            .join(".cursor/skills/acme--code-reviewer.mdc")
-            .exists());
-    }
+    // TODO: re-enable when ready
+    // #[test]
+    // fn test_run_setup_only_cursor_creates_dir() {
+    //     let tmp = TempDir::new().unwrap();
+    //     // No .cursor directory pre-created
+    //
+    //     let install_dir = tmp.path().join("apkg_packages/@acme/code-reviewer");
+    //     fs::create_dir_all(&install_dir).unwrap();
+    //     let json = r#"{
+    //         "name": "@acme/code-reviewer",
+    //         "version": "1.0.0",
+    //         "type": "skill",
+    //         "description": "Code review",
+    //         "license": "MIT",
+    //         "skill": {
+    //             "capabilities": ["code-review"],
+    //             "inputSchema": {},
+    //             "outputSchema": {}
+    //         }
+    //     }"#;
+    //     fs::write(install_dir.join("apkg.json"), json).unwrap();
+    //
+    //     let report = run_setup(&SetupContext {
+    //         project_root: tmp.path().to_path_buf(),
+    //         install_dir,
+    //         target: SetupTarget::Only(Tool::Cursor),
+    //     });
+    //
+    //     assert_eq!(report.tools, vec![Tool::Cursor]);
+    //     assert_eq!(report.created.len(), 1);
+    //     assert!(tmp
+    //         .path()
+    //         .join(".cursor/skills/acme--code-reviewer.mdc")
+    //         .exists());
+    // }
 
     #[test]
     fn test_tool_display() {
-        assert_eq!(Tool::Cursor.to_string(), "Cursor");
         assert_eq!(Tool::ClaudeCode.to_string(), "Claude Code");
-        assert_eq!(Tool::Windsurf.to_string(), "Windsurf");
-        assert_eq!(Tool::Kiro.to_string(), "Kiro");
-        assert_eq!(Tool::Codex.to_string(), "Codex");
     }
 
-    #[test]
-    fn test_detect_tools_windsurf_only() {
-        let tmp = TempDir::new().unwrap();
-        fs::create_dir(tmp.path().join(".windsurf")).unwrap();
-        let tools = detect_tools(tmp.path());
-        assert_eq!(tools, vec![Tool::Windsurf]);
-    }
+    // TODO: re-enable when ready
+    // #[test]
+    // fn test_detect_tools_windsurf_only() {
+    //     let tmp = TempDir::new().unwrap();
+    //     fs::create_dir(tmp.path().join(".windsurf")).unwrap();
+    //     let tools = detect_tools(tmp.path());
+    //     assert_eq!(tools, vec![Tool::Windsurf]);
+    // }
 
-    #[test]
-    fn test_detect_tools_kiro_only() {
-        let tmp = TempDir::new().unwrap();
-        fs::create_dir(tmp.path().join(".kiro")).unwrap();
-        let tools = detect_tools(tmp.path());
-        assert_eq!(tools, vec![Tool::Kiro]);
-    }
+    // #[test]
+    // fn test_detect_tools_kiro_only() {
+    //     let tmp = TempDir::new().unwrap();
+    //     fs::create_dir(tmp.path().join(".kiro")).unwrap();
+    //     let tools = detect_tools(tmp.path());
+    //     assert_eq!(tools, vec![Tool::Kiro]);
+    // }
 
-    #[test]
-    fn test_detect_tools_codex_only() {
-        let tmp = TempDir::new().unwrap();
-        fs::create_dir(tmp.path().join(".codex")).unwrap();
-        let tools = detect_tools(tmp.path());
-        assert_eq!(tools, vec![Tool::Codex]);
-    }
+    // #[test]
+    // fn test_detect_tools_codex_only() {
+    //     let tmp = TempDir::new().unwrap();
+    //     fs::create_dir(tmp.path().join(".codex")).unwrap();
+    //     let tools = detect_tools(tmp.path());
+    //     assert_eq!(tools, vec![Tool::Codex]);
+    // }
 
-    #[test]
-    fn test_detect_tools_all_five() {
-        let tmp = TempDir::new().unwrap();
-        fs::create_dir(tmp.path().join(".cursor")).unwrap();
-        fs::create_dir(tmp.path().join(".claude")).unwrap();
-        fs::create_dir(tmp.path().join(".windsurf")).unwrap();
-        fs::create_dir(tmp.path().join(".kiro")).unwrap();
-        fs::create_dir(tmp.path().join(".codex")).unwrap();
-        let tools = detect_tools(tmp.path());
-        assert_eq!(
-            tools,
-            vec![
-                Tool::Cursor,
-                Tool::ClaudeCode,
-                Tool::Windsurf,
-                Tool::Kiro,
-                Tool::Codex
-            ]
-        );
-    }
+    // #[test]
+    // fn test_detect_tools_all_five() {
+    //     let tmp = TempDir::new().unwrap();
+    //     fs::create_dir(tmp.path().join(".cursor")).unwrap();
+    //     fs::create_dir(tmp.path().join(".claude")).unwrap();
+    //     fs::create_dir(tmp.path().join(".windsurf")).unwrap();
+    //     fs::create_dir(tmp.path().join(".kiro")).unwrap();
+    //     fs::create_dir(tmp.path().join(".codex")).unwrap();
+    //     let tools = detect_tools(tmp.path());
+    //     assert_eq!(
+    //         tools,
+    //         vec![
+    //             Tool::Cursor,
+    //             Tool::ClaudeCode,
+    //             Tool::Windsurf,
+    //             Tool::Kiro,
+    //             Tool::Codex
+    //         ]
+    //     );
+    // }
 
     #[test]
     fn test_tool_from_key() {
-        assert_eq!(Tool::from_key("cursor"), Some(Tool::Cursor));
         assert_eq!(Tool::from_key("claude-code"), Some(Tool::ClaudeCode));
-        assert_eq!(Tool::from_key("windsurf"), Some(Tool::Windsurf));
-        assert_eq!(Tool::from_key("kiro"), Some(Tool::Kiro));
-        assert_eq!(Tool::from_key("codex"), Some(Tool::Codex));
         assert_eq!(Tool::from_key("unknown"), None);
+        // TODO: re-enable when ready
+        // assert_eq!(Tool::from_key("cursor"), Some(Tool::Cursor));
+        // assert_eq!(Tool::from_key("windsurf"), Some(Tool::Windsurf));
+        // assert_eq!(Tool::from_key("kiro"), Some(Tool::Kiro));
+        // assert_eq!(Tool::from_key("codex"), Some(Tool::Codex));
     }
 }

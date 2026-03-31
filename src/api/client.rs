@@ -183,8 +183,8 @@ impl ApiClient {
             .part(
                 "tarball",
                 multipart::Part::bytes(tarball_bytes)
-                    .file_name("package.tgz")
-                    .mime_str("application/gzip")
+                    .file_name("package.tar.zst")
+                    .mime_str("application/zstd")
                     .map_err(|e| AppError::Other(format!("Failed to build multipart: {e}")))?,
             );
 

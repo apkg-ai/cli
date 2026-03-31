@@ -56,7 +56,7 @@ pub fn store(name: &str, version: &str, data: &[u8], integrity: &str) -> Result<
     let dir = entry_dir(name, version)?;
     fs::create_dir_all(&dir)?;
 
-    fs::write(dir.join("package.tgz"), data)?;
+    fs::write(dir.join("package.tar.zst"), data)?;
 
     let metadata = CacheMetadata {
         integrity: integrity.to_string(),
@@ -70,7 +70,7 @@ pub fn store(name: &str, version: &str, data: &[u8], integrity: &str) -> Result<
 
 pub fn load(name: &str, version: &str) -> Result<Option<CacheEntry>, AppError> {
     let dir = entry_dir(name, version)?;
-    let tarball_path = dir.join("package.tgz");
+    let tarball_path = dir.join("package.tar.zst");
     let metadata_path = dir.join("metadata.json");
 
     if !tarball_path.exists() || !metadata_path.exists() {
@@ -113,7 +113,7 @@ pub fn list_entries() -> Result<Vec<CacheEntryInfo>, AppError> {
                 continue;
             }
             let version = ver_entry.file_name().to_string_lossy().into_owned();
-            let tarball_path = ver_entry.path().join("package.tgz");
+            let tarball_path = ver_entry.path().join("package.tar.zst");
             let metadata_path = ver_entry.path().join("metadata.json");
 
             if !tarball_path.exists() || !metadata_path.exists() {
@@ -176,7 +176,7 @@ pub fn verify() -> Result<CacheVerifyResult, AppError> {
 
     for entry in &entries {
         let dir = entry_dir(&entry.name, &entry.version)?;
-        let tarball_path = dir.join("package.tgz");
+        let tarball_path = dir.join("package.tar.zst");
         let metadata_path = dir.join("metadata.json");
 
         let data = fs::read(&tarball_path)?;
@@ -351,7 +351,7 @@ mod tests {
 
             // Corrupt the tarball
             let dir = entry_dir("bad-pkg", "1.0.0").unwrap();
-            fs::write(dir.join("package.tgz"), b"corrupted!").unwrap();
+            fs::write(dir.join("package.tar.zst"), b"corrupted!").unwrap();
 
             let result = verify().unwrap();
             assert_eq!(result.checked, 1);

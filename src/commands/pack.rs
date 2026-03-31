@@ -15,7 +15,7 @@ pub fn run() -> Result<(), AppError> {
     let size = data.len();
 
     let filename = format!(
-        "{}-{}.tgz",
+        "{}-{}.tar.zst",
         m.name.replace('/', "-").replace('@', ""),
         m.version
     );

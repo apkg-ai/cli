@@ -2,8 +2,6 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
-use flate2::write::GzEncoder;
-use flate2::Compression;
 use glob_match::glob_match;
 
 use crate::error::AppError;
@@ -12,18 +10,19 @@ const DEFAULT_IGNORE: &[&str] = &[
     ".git/**",
     "node_modules/**",
     "target/**",
-    "*.tgz",
+    "*.tar.zst",
     ".apkgignore",
     ".DS_Store",
     "apkg_packages/**",
 ];
 
-/// Create a `.tgz` tarball from the given directory, returning the bytes.
+/// Create a `.tar.zst` tarball from the given directory, returning the bytes.
 pub fn create_tarball(dir: &Path) -> Result<Vec<u8>, AppError> {
     let ignore_patterns = load_ignore_patterns(dir);
 
     let buf = Vec::new();
-    let enc = GzEncoder::new(buf, Compression::best());
+    let enc = zstd::Encoder::new(buf, 19)
+        .map_err(|e| AppError::Other(format!("Failed to create zstd encoder: {e}")))?;
     let mut archive = tar::Builder::new(enc);
 
     add_dir_recursive(&mut archive, dir, dir, &ignore_patterns)?;
@@ -45,16 +44,16 @@ pub fn write_tarball(path: &Path, data: &[u8]) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Extract a `.tgz` tarball into the given directory.
+/// Extract a `.tar.zst` tarball into the given directory.
 pub fn extract_tarball(data: &[u8], dest: &Path) -> Result<(), AppError> {
-    use flate2::read::GzDecoder;
     use std::io::Cursor;
 
-    let cursor = Cursor::new(data);
-    let decoder = GzDecoder::new(cursor);
-    let mut archive = tar::Archive::new(decoder);
-
     fs::create_dir_all(dest)?;
+
+    let cursor = Cursor::new(data);
+    let decoder = zstd::Decoder::new(cursor)
+        .map_err(|e| AppError::Other(format!("Failed to create zstd decoder: {e}")))?;
+    let mut archive = tar::Archive::new(decoder);
     archive
         .unpack(dest)
         .map_err(|e| AppError::Other(format!("Failed to extract tarball: {e}")))?;
@@ -141,7 +140,7 @@ mod tests {
         assert!(should_ignore(".git/config", &patterns));
         assert!(should_ignore("node_modules/foo/bar.js", &patterns));
         assert!(should_ignore("target/debug/apkg", &patterns));
-        assert!(should_ignore("package-0.1.0.tgz", &patterns));
+        assert!(should_ignore("package-0.1.0.tar.zst", &patterns));
         assert!(!should_ignore("src/main.rs", &patterns));
         assert!(!should_ignore("apkg.json", &patterns));
     }
@@ -157,10 +156,20 @@ mod tests {
 
         let tarball = create_tarball(dir).unwrap();
         assert!(!tarball.is_empty());
+        // Verify zstd magic bytes
+        assert_eq!(&tarball[..4], [0x28, 0xB5, 0x2F, 0xFD]);
 
         let extract_dir = tmp.path().join("extracted");
         extract_tarball(&tarball, &extract_dir).unwrap();
         assert!(extract_dir.join("apkg.json").exists());
         assert!(extract_dir.join("src/main.rs").exists());
+    }
+
+    #[test]
+    fn test_extract_invalid_data_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bad_data = b"this is not a valid tarball";
+        let result = extract_tarball(bad_data, tmp.path());
+        assert!(result.is_err());
     }
 }

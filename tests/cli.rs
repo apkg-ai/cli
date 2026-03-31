@@ -135,10 +135,10 @@ fn test_pack_with_manifest() {
         .current_dir(tmp.path())
         .assert()
         .success()
-        .stderr(predicate::str::contains("Packed test-package-0.1.0.tgz"))
+        .stderr(predicate::str::contains("Packed test-package-0.1.0.tar.zst"))
         .stdout(predicate::str::contains("sha256-"));
 
-    assert!(tmp.path().join("test-package-0.1.0.tgz").exists());
+    assert!(tmp.path().join("test-package-0.1.0.tar.zst").exists());
 }
 
 #[test]

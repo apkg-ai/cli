@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{config_file_stem, resolve_system_prompt, PackageInfo};
+use super::{config_pkg_path, package_short_name, resolve_system_prompt, PackageInfo};
 use crate::config::manifest::PackageType;
 
 /// Generate and write a Codex SKILL.md for the given package.
@@ -12,10 +12,10 @@ pub fn setup_codex(
     info: &PackageInfo,
 ) -> Result<PathBuf, String> {
     let content = generate_codex_skill_md(install_dir, info);
-    let stem = config_file_stem(&info.name);
-    let target_dir = project_root.join(".codex").join("skills").join(&stem);
+    let pkg_path = config_pkg_path(&info.name);
+    let target_dir = project_root.join(".codex").join("skills").join(&pkg_path);
     fs::create_dir_all(&target_dir)
-        .map_err(|e| format!("Failed to create .codex/skills/{stem}/: {e}"))?;
+        .map_err(|e| format!("Failed to create .codex/skills/{}/: {e}", pkg_path.display()))?;
 
     let path = target_dir.join("SKILL.md");
     fs::write(&path, content).map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
@@ -27,10 +27,9 @@ fn generate_codex_skill_md(install_dir: &Path, info: &PackageInfo) -> String {
 
     // YAML frontmatter
     let desc = info.description.replace('"', "'");
-    let stem = config_file_stem(&info.name);
     let _ = write!(
         out,
-        "---\nname: {stem}\ndescription: \"{name} — {desc}\"\n---\n\n",
+        "---\nname: \"{name}\"\ndescription: \"{name} — {desc}\"\n---\n\n",
         name = info.name,
     );
 
@@ -155,7 +154,7 @@ mod tests {
     fn test_generate_codex_skill_md_skill() {
         let tmp = TempDir::new().unwrap();
         let content = generate_codex_skill_md(tmp.path(), &skill_info());
-        assert!(content.contains("name: acme--code-reviewer"));
+        assert!(content.contains("name: \"@acme/code-reviewer\""));
         assert!(content.contains("description: \"@acme/code-reviewer"));
         assert!(content.contains("# @acme/code-reviewer (skill)"));
         assert!(content.contains("- code-review"));
@@ -167,7 +166,7 @@ mod tests {
     fn test_generate_codex_skill_md_agent() {
         let tmp = TempDir::new().unwrap();
         let content = generate_codex_skill_md(tmp.path(), &agent_info());
-        assert!(content.contains("name: acme--research-agent"));
+        assert!(content.contains("name: \"@acme/research-agent\""));
         assert!(content.contains("# @acme/research-agent (agent)"));
         assert!(content.contains("## System Prompt"));
         assert!(content.contains("You are a research assistant."));
@@ -188,7 +187,7 @@ mod tests {
         assert_eq!(path.file_name().unwrap(), "SKILL.md");
         assert!(path.starts_with(
             tmp.path()
-                .join(".codex/skills/acme--code-reviewer")
+                .join(".codex/skills/@acme/code-reviewer")
         ));
     }
 }

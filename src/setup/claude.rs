@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::manifest::PackageType;
 
-use super::{config_file_stem, resolve_system_prompt, PackageInfo};
+use super::{config_pkg_path, package_short_name, resolve_system_prompt, PackageInfo};
 
 /// Generate and write Claude Code config files for the given package.
 ///
@@ -27,16 +27,17 @@ pub fn setup_claude(
     );
     let md_files = find_definition_files(install_dir, require_frontmatter);
 
-    let pkg_stem = config_file_stem(&info.name);
-    let sub_dir = target_dir.join(&pkg_stem);
+    let pkg_path = config_pkg_path(&info.name);
+    let sub_dir = target_dir.join(&pkg_path);
     fs::create_dir_all(&sub_dir)
-        .map_err(|e| format!("Failed to create .claude/{type_dir}/{pkg_stem}/: {e}"))?;
+        .map_err(|e| format!("Failed to create .claude/{type_dir}/{}/: {e}", pkg_path.display()))?;
 
     if md_files.is_empty() {
         // Fallback: generate a summary file (legacy behaviour for packages
         // that don't ship their own .md definitions).
         let content = generate_claude_command(install_dir, info);
-        let path = sub_dir.join(format!("{pkg_stem}.md"));
+        let short = package_short_name(&info.name);
+        let path = sub_dir.join(format!("{short}.md"));
         fs::write(&path, &content)
             .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
         return Ok(vec![path]);
@@ -280,11 +281,11 @@ mod tests {
         let paths = setup_claude(tmp.path(), &install_dir, &skill_info()).unwrap();
         assert_eq!(paths.len(), 1);
         assert!(paths[0].exists());
-        assert_eq!(paths[0].file_name().unwrap(), "acme--code-reviewer.md");
+        assert_eq!(paths[0].file_name().unwrap(), "code-reviewer.md");
         assert!(paths[0]
             .parent()
             .unwrap()
-            .ends_with("skills/acme--code-reviewer"));
+            .ends_with("skills/@acme/code-reviewer"));
     }
 
     #[test]
@@ -306,7 +307,7 @@ mod tests {
         assert!(dest
             .parent()
             .unwrap()
-            .ends_with("agents/acme--research-agent"));
+            .ends_with("agents/@acme/research-agent"));
         let content = fs::read_to_string(dest).unwrap();
         assert!(content.starts_with("---\n"));
         assert!(content.contains("You are a reviewer."));
@@ -335,7 +336,7 @@ mod tests {
         assert!(paths[0]
             .parent()
             .unwrap()
-            .ends_with("agents/acme--research-agent"));
+            .ends_with("agents/@acme/research-agent"));
     }
 
     #[test]
@@ -394,7 +395,7 @@ mod tests {
         assert!(paths[0]
             .parent()
             .unwrap()
-            .ends_with("commands/sheplu--command-audit"));
+            .ends_with("commands/@sheplu/command-audit"));
         let content = fs::read_to_string(&paths[0]).unwrap();
         assert!(content.contains("Run a comprehensive audit"));
     }

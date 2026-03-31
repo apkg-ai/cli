@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::manifest::PackageType;
 
-use super::{config_file_stem, resolve_system_prompt, PackageInfo};
+use super::{config_pkg_path, package_short_name, resolve_system_prompt, PackageInfo};
 
 /// Generate and write Cursor config files for the given package.
 ///
@@ -38,20 +38,20 @@ fn setup_skill(
     install_dir: &Path,
     info: &PackageInfo,
 ) -> Result<Vec<PathBuf>, String> {
-    let stem = config_file_stem(&info.name);
+    let pkg_path = config_pkg_path(&info.name);
     let skill_dir = project_root
         .join(".cursor")
         .join("skills")
-        .join(&stem);
+        .join(&pkg_path);
     fs::create_dir_all(&skill_dir)
-        .map_err(|e| format!("Failed to create .cursor/skills/{stem}/: {e}"))?;
+        .map_err(|e| format!("Failed to create .cursor/skills/{}/: {e}", pkg_path.display()))?;
 
     let md_files = find_definition_files(install_dir, true);
     let skill_path = skill_dir.join("SKILL.md");
 
     if md_files.is_empty() {
         // No definition files — generate a fallback SKILL.md.
-        let content = generate_skill_md(install_dir, info, &stem);
+        let content = generate_skill_md(install_dir, info, &info.name);
         fs::write(&skill_path, &content)
             .map_err(|e| format!("Failed to write {}: {e}", skill_path.display()))?;
         return Ok(vec![skill_path]);
@@ -62,7 +62,7 @@ fn setup_skill(
     let primary = &md_files[0];
     let original = fs::read_to_string(primary)
         .map_err(|e| format!("Failed to read {}: {e}", primary.display()))?;
-    let content = wrap_skill_frontmatter(info, &stem, &original);
+    let content = wrap_skill_frontmatter(info, &info.name, &original);
     fs::write(&skill_path, &content)
         .map_err(|e| format!("Failed to write {}: {e}", skill_path.display()))?;
     let mut created = vec![skill_path];
@@ -88,14 +88,14 @@ fn setup_skill(
     Ok(created)
 }
 
-fn generate_skill_md(install_dir: &Path, info: &PackageInfo, stem: &str) -> String {
+fn generate_skill_md(install_dir: &Path, info: &PackageInfo, frontmatter_name: &str) -> String {
     let mut out = String::new();
     let desc = info.description.replace('"', "'");
 
     // Frontmatter
     let _ = write!(
         out,
-        "---\nname: {stem}\ndescription: \"{name} — {desc}\"\n---\n\n",
+        "---\nname: \"{frontmatter_name}\"\ndescription: \"{name} — {desc}\"\n---\n\n",
         name = info.name,
     );
 
@@ -130,10 +130,10 @@ fn generate_skill_md(install_dir: &Path, info: &PackageInfo, stem: &str) -> Stri
 
 /// Wrap a definition file's content with Cursor skill frontmatter.
 /// Strips any existing frontmatter before prepending the Cursor-specific one.
-fn wrap_skill_frontmatter(info: &PackageInfo, stem: &str, content: &str) -> String {
+fn wrap_skill_frontmatter(info: &PackageInfo, frontmatter_name: &str, content: &str) -> String {
     let desc = info.description.replace('"', "'");
     let header = format!(
-        "---\nname: {stem}\ndescription: \"{name} — {desc}\"\n---\n\n",
+        "---\nname: \"{frontmatter_name}\"\ndescription: \"{name} — {desc}\"\n---\n\n",
         name = info.name,
     );
 
@@ -161,19 +161,20 @@ fn setup_agent(
     install_dir: &Path,
     info: &PackageInfo,
 ) -> Result<Vec<PathBuf>, String> {
-    let stem = config_file_stem(&info.name);
+    let pkg_path = config_pkg_path(&info.name);
     let agent_dir = project_root
         .join(".cursor")
         .join("agents")
-        .join(&stem);
+        .join(&pkg_path);
     fs::create_dir_all(&agent_dir)
-        .map_err(|e| format!("Failed to create .cursor/agents/{stem}/: {e}"))?;
+        .map_err(|e| format!("Failed to create .cursor/agents/{}/: {e}", pkg_path.display()))?;
 
     let md_files = find_definition_files(install_dir, true);
 
     if md_files.is_empty() {
-        let content = generate_agent_md(install_dir, info, &stem);
-        let path = agent_dir.join(format!("{stem}.md"));
+        let content = generate_agent_md(install_dir, info, &info.name);
+        let short = package_short_name(&info.name);
+        let path = agent_dir.join(format!("{short}.md"));
         fs::write(&path, &content)
             .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
         return Ok(vec![path]);
@@ -195,14 +196,14 @@ fn setup_agent(
     Ok(created)
 }
 
-fn generate_agent_md(install_dir: &Path, info: &PackageInfo, stem: &str) -> String {
+fn generate_agent_md(install_dir: &Path, info: &PackageInfo, frontmatter_name: &str) -> String {
     let mut out = String::new();
     let desc = info.description.replace('"', "'");
 
     // Cursor agent frontmatter
     let _ = write!(
         out,
-        "---\nname: {stem}\ndescription: \"{name} — {desc}\"\nmodel: inherit\n---\n\n",
+        "---\nname: \"{frontmatter_name}\"\ndescription: \"{name} — {desc}\"\nmodel: inherit\n---\n\n",
         name = info.name,
     );
 
@@ -260,19 +261,20 @@ fn setup_command(
     install_dir: &Path,
     info: &PackageInfo,
 ) -> Result<Vec<PathBuf>, String> {
-    let stem = config_file_stem(&info.name);
+    let pkg_path = config_pkg_path(&info.name);
     let cmd_dir = project_root
         .join(".cursor")
         .join("commands")
-        .join(&stem);
+        .join(&pkg_path);
     fs::create_dir_all(&cmd_dir)
-        .map_err(|e| format!("Failed to create .cursor/commands/{stem}/: {e}"))?;
+        .map_err(|e| format!("Failed to create .cursor/commands/{}/: {e}", pkg_path.display()))?;
 
     let md_files = find_definition_files(install_dir, false);
 
     if md_files.is_empty() {
         let content = generate_command_md(install_dir, info);
-        let path = cmd_dir.join(format!("{stem}.md"));
+        let short = package_short_name(&info.name);
+        let path = cmd_dir.join(format!("{short}.md"));
         fs::write(&path, &content)
             .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
         return Ok(vec![path]);
@@ -324,19 +326,20 @@ fn setup_rule(
     install_dir: &Path,
     info: &PackageInfo,
 ) -> Result<Vec<PathBuf>, String> {
-    let stem = config_file_stem(&info.name);
+    let pkg_path = config_pkg_path(&info.name);
     let rule_dir = project_root
         .join(".cursor")
         .join("rules")
-        .join(&stem);
+        .join(&pkg_path);
     fs::create_dir_all(&rule_dir)
-        .map_err(|e| format!("Failed to create .cursor/rules/{stem}/: {e}"))?;
+        .map_err(|e| format!("Failed to create .cursor/rules/{}/: {e}", pkg_path.display()))?;
 
     let md_files = find_definition_files(install_dir, false);
 
     if md_files.is_empty() {
         let content = generate_rule_mdc(info);
-        let path = rule_dir.join(format!("{stem}.mdc"));
+        let short = package_short_name(&info.name);
+        let path = rule_dir.join(format!("{short}.mdc"));
         fs::write(&path, &content)
             .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
         return Ok(vec![path]);
@@ -510,8 +513,8 @@ mod tests {
     #[test]
     fn test_generate_skill_md() {
         let tmp = TempDir::new().unwrap();
-        let content = generate_skill_md(tmp.path(), &skill_info(), "acme--code-reviewer");
-        assert!(content.contains("name: acme--code-reviewer"));
+        let content = generate_skill_md(tmp.path(), &skill_info(), "@acme/code-reviewer");
+        assert!(content.contains("name: \"@acme/code-reviewer\""));
         assert!(content.contains("description: \"@acme/code-reviewer"));
         assert!(content.contains("# @acme/code-reviewer (skill)"));
         assert!(content.contains("Capabilities: code-review, bug-detection"));
@@ -531,7 +534,7 @@ mod tests {
         assert!(paths[0]
             .parent()
             .unwrap()
-            .ends_with("skills/acme--code-reviewer"));
+            .ends_with("skills/@acme/code-reviewer"));
     }
 
     #[test]
@@ -551,7 +554,7 @@ mod tests {
         assert_eq!(paths[0].file_name().unwrap(), "SKILL.md");
         let content = fs::read_to_string(&paths[0]).unwrap();
         // Has Cursor frontmatter
-        assert!(content.contains("name: acme--code-reviewer"));
+        assert!(content.contains("name: \"@acme/code-reviewer\""));
         assert!(content.contains("description:"));
         // Has the definition body (original frontmatter stripped)
         assert!(content.contains("Review instructions."));
@@ -586,8 +589,8 @@ mod tests {
     #[test]
     fn test_generate_agent_md() {
         let tmp = TempDir::new().unwrap();
-        let content = generate_agent_md(tmp.path(), &agent_info(), "acme--research-agent");
-        assert!(content.contains("name: acme--research-agent"));
+        let content = generate_agent_md(tmp.path(), &agent_info(), "@acme/research-agent");
+        assert!(content.contains("name: \"@acme/research-agent\""));
         assert!(content.contains("model: inherit"));
         assert!(content.contains("# @acme/research-agent (agent)"));
         assert!(content.contains("## System Prompt"));
@@ -608,12 +611,12 @@ mod tests {
         assert!(paths[0].exists());
         assert_eq!(
             paths[0].file_name().unwrap(),
-            "acme--research-agent.md"
+            "research-agent.md"
         );
         assert!(paths[0]
             .parent()
             .unwrap()
-            .ends_with("agents/acme--research-agent"));
+            .ends_with("agents/@acme/research-agent"));
     }
 
     #[test]
@@ -633,7 +636,7 @@ mod tests {
         assert!(paths[0]
             .parent()
             .unwrap()
-            .ends_with("agents/acme--research-agent"));
+            .ends_with("agents/@acme/research-agent"));
     }
 
     #[test]
@@ -678,7 +681,7 @@ mod tests {
         assert!(paths[0]
             .parent()
             .unwrap()
-            .ends_with("commands/sheplu--command-audit"));
+            .ends_with("commands/@sheplu/command-audit"));
         let content = fs::read_to_string(&paths[0]).unwrap();
         assert!(content.contains("Run a comprehensive audit"));
     }
@@ -693,7 +696,7 @@ mod tests {
         assert_eq!(paths.len(), 1);
         assert_eq!(
             paths[0].file_name().unwrap(),
-            "sheplu--command-audit.md"
+            "command-audit.md"
         );
         let content = fs::read_to_string(&paths[0]).unwrap();
         assert!(content.contains("# @sheplu/command-audit"));
@@ -718,11 +721,11 @@ mod tests {
 
         let paths = setup_cursor(tmp.path(), &install_dir, &rule_info()).unwrap();
         assert_eq!(paths.len(), 1);
-        assert_eq!(paths[0].file_name().unwrap(), "acme--my-rule.mdc");
+        assert_eq!(paths[0].file_name().unwrap(), "my-rule.mdc");
         assert!(paths[0]
             .parent()
             .unwrap()
-            .ends_with("rules/acme--my-rule"));
+            .ends_with("rules/@acme/my-rule"));
     }
 
     #[test]

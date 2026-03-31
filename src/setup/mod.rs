@@ -172,12 +172,21 @@ pub fn load_package_info(install_dir: &Path) -> Result<PackageInfo, String> {
     serde_json::from_str(&content).map_err(|e| format!("Failed to parse installed manifest: {e}"))
 }
 
-/// Sanitize a package name for use as a filename.
-/// `@scope/name` -> `scope--name`
-pub fn config_file_stem(name: &str) -> String {
-    let stripped = name.strip_prefix('@').unwrap_or(name);
-    stripped.replace('/', "--")
+/// Build the relative path for a package within a tool config directory.
+/// Scoped packages become two-component paths mirroring npm conventions:
+/// `@scope/name` -> `@scope/name` (two directory levels)
+/// `my-package`  -> `my-package`  (single directory level)
+pub fn config_pkg_path(name: &str) -> PathBuf {
+    PathBuf::from(name)
 }
+
+/// Extract the short name from a possibly-scoped package name.
+/// `@acme/code-reviewer` -> `code-reviewer`
+/// `my-package` -> `my-package`
+pub fn package_short_name(name: &str) -> &str {
+    name.rsplit('/').next().unwrap_or(name)
+}
+
 
 /// If the value looks like a file path, read its content from the package dir.
 /// Otherwise return it as-is (inline text).
@@ -332,22 +341,41 @@ mod tests {
     }
 
     #[test]
-    fn test_config_file_stem_scoped() {
+    fn test_config_pkg_path_scoped() {
         assert_eq!(
-            config_file_stem("@acme/code-reviewer"),
-            "acme--code-reviewer"
+            config_pkg_path("@acme/code-reviewer"),
+            PathBuf::from("@acme/code-reviewer")
         );
     }
 
     #[test]
-    fn test_config_file_stem_unscoped() {
-        assert_eq!(config_file_stem("my-package"), "my-package");
+    fn test_config_pkg_path_unscoped() {
+        assert_eq!(config_pkg_path("my-package"), PathBuf::from("my-package"));
     }
 
     #[test]
-    fn test_config_file_stem_nested_scope() {
-        assert_eq!(config_file_stem("@org/sub/name"), "org--sub--name");
+    fn test_config_pkg_path_nested_scope() {
+        assert_eq!(
+            config_pkg_path("@org/sub/name"),
+            PathBuf::from("@org/sub/name")
+        );
     }
+
+    #[test]
+    fn test_package_short_name_scoped() {
+        assert_eq!(package_short_name("@acme/code-reviewer"), "code-reviewer");
+    }
+
+    #[test]
+    fn test_package_short_name_unscoped() {
+        assert_eq!(package_short_name("my-package"), "my-package");
+    }
+
+    #[test]
+    fn test_package_short_name_nested() {
+        assert_eq!(package_short_name("@org/sub/name"), "name");
+    }
+
 
     #[test]
     fn test_detect_tools_none() {
@@ -532,7 +560,7 @@ mod tests {
         assert_eq!(report.created.len(), 1);
         assert!(tmp
             .path()
-            .join(".claude/commands/sheplu--command-audit/audit.md")
+            .join(".claude/commands/@sheplu/command-audit/audit.md")
             .exists());
     }
 
@@ -570,7 +598,7 @@ mod tests {
             assert!(report.warnings.is_empty());
             assert!(tmp
                 .path()
-                .join(".claude/skills/acme--code-reviewer/acme--code-reviewer.md")
+                .join(".claude/skills/@acme/code-reviewer/code-reviewer.md")
                 .exists());
         });
     }
@@ -629,11 +657,11 @@ mod tests {
         assert_eq!(report.created.len(), 1);
         assert!(tmp
             .path()
-            .join(".cursor/skills/acme--code-reviewer/SKILL.md")
+            .join(".cursor/skills/@acme/code-reviewer/SKILL.md")
             .exists());
         assert!(!tmp
             .path()
-            .join(".claude/skills/acme--code-reviewer/acme--code-reviewer.md")
+            .join(".claude/skills/@acme/code-reviewer/code-reviewer.md")
             .exists());
     }
 
@@ -669,11 +697,11 @@ mod tests {
         assert_eq!(report.created.len(), 1);
         assert!(!tmp
             .path()
-            .join(".cursor/skills/acme--code-reviewer.mdc")
+            .join(".cursor/skills/@acme/code-reviewer.mdc")
             .exists());
         assert!(tmp
             .path()
-            .join(".claude/skills/acme--code-reviewer/acme--code-reviewer.md")
+            .join(".claude/skills/@acme/code-reviewer/code-reviewer.md")
             .exists());
     }
 
@@ -708,7 +736,7 @@ mod tests {
         assert_eq!(report.created.len(), 1);
         assert!(tmp
             .path()
-            .join(".claude/skills/acme--code-reviewer/acme--code-reviewer.md")
+            .join(".claude/skills/@acme/code-reviewer/code-reviewer.md")
             .exists());
     }
 
@@ -743,7 +771,7 @@ mod tests {
         assert_eq!(report.created.len(), 1);
         assert!(tmp
             .path()
-            .join(".cursor/skills/acme--code-reviewer/SKILL.md")
+            .join(".cursor/skills/@acme/code-reviewer/SKILL.md")
             .exists());
     }
 

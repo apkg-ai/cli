@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{config_file_stem, resolve_system_prompt, PackageInfo};
+use super::{config_pkg_path, package_short_name, resolve_system_prompt, PackageInfo};
 use crate::config::manifest::PackageType;
 
 /// Generate and write a Kiro steering file for the given package.
@@ -12,12 +12,13 @@ pub fn setup_kiro(
     info: &PackageInfo,
 ) -> Result<PathBuf, String> {
     let content = generate_kiro_steering(install_dir, info);
-    let stem = config_file_stem(&info.name);
-    let target_dir = project_root.join(".kiro").join("steering");
+    let pkg_path = config_pkg_path(&info.name);
+    let short = package_short_name(&info.name);
+    let target_dir = project_root.join(".kiro").join("steering").join(&pkg_path);
     fs::create_dir_all(&target_dir)
-        .map_err(|e| format!("Failed to create .kiro/steering/: {e}"))?;
+        .map_err(|e| format!("Failed to create .kiro/steering/{}/: {e}", pkg_path.display()))?;
 
-    let path = target_dir.join(format!("{stem}.md"));
+    let path = target_dir.join(format!("{short}.md"));
     fs::write(&path, content).map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
     Ok(path)
 }
@@ -176,7 +177,7 @@ mod tests {
 
         let path = setup_kiro(tmp.path(), &install_dir, &skill_info()).unwrap();
         assert!(path.exists());
-        assert_eq!(path.file_name().unwrap(), "acme--code-reviewer.md");
-        assert!(path.starts_with(tmp.path().join(".kiro/steering")));
+        assert_eq!(path.file_name().unwrap(), "code-reviewer.md");
+        assert!(path.starts_with(tmp.path().join(".kiro/steering/@acme/code-reviewer")));
     }
 }

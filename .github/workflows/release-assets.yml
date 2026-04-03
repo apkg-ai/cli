@@ -1,0 +1,67 @@
+name: Release assets
+
+on:
+  release:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            asset: apkg-linux-amd64.tar.gz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            asset: apkg-linux-arm64.tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-13
+            asset: apkg-darwin-amd64.tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-14
+            asset: apkg-darwin-arm64.tar.gz
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            asset: apkg-windows-amd64.zip
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        run: tar czf ${{ matrix.asset }} -C target/release apkg
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path target/release/apkg.exe -DestinationPath ${{ matrix.asset }}
+
+      - name: Generate checksum (unix)
+        if: runner.os != 'Windows'
+        run: shasum -a 256 ${{ matrix.asset }} > ${{ matrix.asset }}.sha256
+
+      - name: Generate checksum (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: (Get-FileHash ${{ matrix.asset }} -Algorithm SHA256).Hash.ToLower() + "  ${{ matrix.asset }}" | Out-File -Encoding ASCII ${{ matrix.asset }}.sha256
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload ${{ github.event.release.tag_name }} ${{ matrix.asset }} ${{ matrix.asset }}.sha256 --clobber
+        shell: bash

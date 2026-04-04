@@ -22,7 +22,9 @@ pub struct ApiClient {
 impl ApiClient {
     pub fn new(registry_override: Option<&str>) -> Result<Self, AppError> {
         let settings = Settings::load()?;
-        let token = credentials::load()?.map(|c| c.access_token);
+        let token = credentials::load()?
+            .map(|c| c.access_token)
+            .or_else(|| std::env::var("APKG_TOKEN").ok());
 
         let client = reqwest::Client::builder()
             .user_agent(format!("apkg-cli/{}", env!("CARGO_PKG_VERSION")))

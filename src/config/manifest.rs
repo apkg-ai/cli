@@ -72,6 +72,16 @@ impl std::fmt::Display for PackageType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Author {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct Manifest {
@@ -86,7 +96,7 @@ pub struct Manifest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keywords: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub author: Option<String>,
+    pub authors: Option<Vec<Author>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -169,7 +179,7 @@ mod tests {
             "license": "Apache-2.0",
             "readme": "README.md",
             "keywords": ["ai", "command"],
-            "author": "acme",
+            "authors": [{"name": "acme"}],
             "repository": "https://github.com/acme/summarizer",
             "homepage": "https://acme.dev",
             "dependencies": {
@@ -219,7 +229,7 @@ mod tests {
             license: "MIT".to_string(),
             readme: None,
             keywords: Some(vec!["ai".to_string()]),
-            author: None,
+            authors: None,
             repository: None,
             homepage: None,
             dependencies: None,

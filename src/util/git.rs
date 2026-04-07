@@ -43,6 +43,40 @@ pub fn get_repository_url() -> Option<String> {
     get_remote_url().map(|url| normalize_remote_url(&url))
 }
 
+/// Get the user name from `git config user.name`.
+pub fn get_user_name() -> Option<String> {
+    let output = Command::new("git")
+        .args(["config", "user.name"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let name = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+/// Get the user email from `git config user.email`.
+pub fn get_user_email() -> Option<String> {
+    let output = Command::new("git")
+        .args(["config", "user.email"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let email = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    if email.is_empty() {
+        None
+    } else {
+        Some(email)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

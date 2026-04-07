@@ -4,7 +4,7 @@ use std::path::Path;
 use dialoguer::{Confirm, Input, Select};
 
 use crate::config::credentials;
-use crate::config::manifest::{self, Manifest, PackageType, MANIFEST_FILE};
+use crate::config::manifest::{self, Author, Manifest, PackageType, MANIFEST_FILE};
 use crate::error::AppError;
 use crate::util::display;
 use crate::util::git;
@@ -101,7 +101,17 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
         None
     };
 
-    let author = scope.map(|s| s.to_string());
+    let authors = {
+        let name = git::get_user_name().or_else(|| scope.map(|s| s.to_string()));
+        let email = git::get_user_email();
+        name.map(|n| {
+            vec![Author {
+                name: n,
+                email,
+                extra: std::collections::BTreeMap::new(),
+            }]
+        })
+    };
     let repository = git::get_repository_url().or_else(|| {
         scope.map(|s| format!("https://github.com/{s}/{dir_name}"))
     });
@@ -114,7 +124,7 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
         license,
         readme,
         keywords,
-        author,
+        authors,
         repository,
         homepage: None,
         dependencies: None,

@@ -13,6 +13,12 @@ pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
     let cwd = env::current_dir()?;
     let m = manifest::load(&cwd)?;
 
+    if !m.package_type.is_publishable() {
+        return Err(AppError::Other(
+            "Cannot publish a project. Only skill, agent, command, and rule packages can be published.".to_string(),
+        ));
+    }
+
     // Validate package name is scoped
     let re = Regex::new(r"^@[a-z0-9-]+/[a-z0-9]([a-z0-9._-]*[a-z0-9])?$").unwrap();
     if !re.is_match(&m.name) {

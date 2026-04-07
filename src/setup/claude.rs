@@ -116,6 +116,7 @@ fn generate_claude_command(install_dir: &Path, info: &PackageInfo) -> String {
         PackageType::Rule => {
             out.push_str("\nThis rule is applied automatically by Claude Code.\n");
         }
+        PackageType::Project => {}
     }
 
     // Entry point
@@ -144,6 +145,7 @@ fn generate_claude_command(install_dir: &Path, info: &PackageInfo) -> String {
         PackageType::Rule => {
             out.push_str("\nThis rule is automatically active in the project.\n");
         }
+        PackageType::Project => {}
     }
 
     // Install location

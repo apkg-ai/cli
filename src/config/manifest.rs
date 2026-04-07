@@ -9,6 +9,7 @@ use crate::error::AppError;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PackageType {
+    Project,
     Skill,
     Agent,
     // McpServer,
@@ -21,6 +22,7 @@ pub enum PackageType {
 
 impl PackageType {
     pub const VARIANTS: &[&str] = &[
+        "project",
         "skill",
         "agent",
         // "mcp-server",
@@ -34,6 +36,7 @@ impl PackageType {
     /// Plural directory name used for tool setup (e.g. `.claude/skills/`).
     pub fn dir_name(&self) -> &'static str {
         match self {
+            PackageType::Project => "projects",
             PackageType::Skill => "skills",
             PackageType::Agent => "agents",
             // PackageType::McpServer => "mcp-servers",
@@ -44,11 +47,17 @@ impl PackageType {
             PackageType::Rule => "rules",
         }
     }
+
+    /// Returns true if this type represents a publishable package.
+    pub fn is_publishable(&self) -> bool {
+        !matches!(self, PackageType::Project)
+    }
 }
 
 impl std::fmt::Display for PackageType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
+            PackageType::Project => "project",
             PackageType::Skill => "skill",
             PackageType::Agent => "agent",
             // PackageType::McpServer => "mcp-server",

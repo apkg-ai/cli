@@ -26,6 +26,7 @@ pub fn setup_cursor(
         PackageType::Agent => setup_agent(project_root, install_dir, info),
         PackageType::Command => setup_command(project_root, install_dir, info),
         PackageType::Rule => setup_rule(project_root, install_dir, info),
+        PackageType::Project => Ok(Vec::new()),
     }
 }
 

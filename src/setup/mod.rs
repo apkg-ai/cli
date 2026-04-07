@@ -215,6 +215,8 @@ fn is_setup_eligible(package_type: &PackageType) -> bool {
         package_type,
         PackageType::Skill | PackageType::Agent | PackageType::Command | PackageType::Rule
     )
+    // Note: PackageType::Project is intentionally excluded — projects consume
+    // packages but are not installed into other projects.
 }
 
 /// Run post-install setup for detected AI tools.
@@ -508,6 +510,7 @@ mod tests {
         assert!(is_setup_eligible(&PackageType::Agent));
         assert!(is_setup_eligible(&PackageType::Command));
         assert!(is_setup_eligible(&PackageType::Rule));
+        assert!(!is_setup_eligible(&PackageType::Project));
     }
 
     #[test]

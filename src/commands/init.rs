@@ -7,6 +7,7 @@ use crate::config::credentials;
 use crate::config::manifest::{self, Manifest, PackageType, MANIFEST_FILE};
 use crate::error::AppError;
 use crate::util::display;
+use crate::util::git;
 
 #[derive(Clone, Copy)]
 pub struct InitOptions {
@@ -27,9 +28,12 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
         .unwrap_or("my-package")
         .to_string();
 
-    let default_name = match credentials::load() {
-        Ok(Some(creds)) => format!("@{}/{}", creds.username, dir_name),
-        _ => format!("@scope/{}", dir_name),
+    let creds = credentials::load().ok().flatten();
+    let scope = creds.as_ref().map(|c| c.username.as_str());
+
+    let default_name = match scope {
+        Some(s) => format!("@{s}/{dir_name}"),
+        None => format!("@scope/{dir_name}"),
     };
 
     let name: String = Input::new()
@@ -97,6 +101,11 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
         None
     };
 
+    let author = scope.map(|s| s.to_string());
+    let repository = git::get_repository_url().or_else(|| {
+        scope.map(|s| format!("https://github.com/{s}/{dir_name}"))
+    });
+
     let m = Manifest {
         name: name.clone(),
         version,
@@ -105,8 +114,8 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
         license,
         readme,
         keywords,
-        author: None,
-        repository: None,
+        author,
+        repository,
         homepage: None,
         dependencies: None,
         dev_dependencies: None,

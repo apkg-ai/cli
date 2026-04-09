@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::manifest::PackageType;
 
-use super::{config_pkg_path, package_short_name, resolve_system_prompt, PackageInfo};
+use super::{config_pkg_path, find_definition_files, package_short_name, resolve_system_prompt, PackageInfo};
 
 /// Generate and write Claude Code config files for the given package.
 ///
@@ -62,39 +62,6 @@ pub fn setup_claude(
     }
 
     Ok(created)
-}
-
-/// Find `.md` files in `install_dir` that contain YAML frontmatter and are
-/// likely agent/skill definitions (not documentation).
-fn find_definition_files(install_dir: &Path, require_frontmatter: bool) -> Vec<PathBuf> {
-    let Ok(entries) = fs::read_dir(install_dir) else {
-        return Vec::new();
-    };
-
-    let excluded: &[&str] = &["readme.md", "changelog.md", "license.md"];
-
-    entries
-        .filter_map(Result::ok)
-        .filter(|e| {
-            e.path()
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
-        })
-        .filter(|e| {
-            let name = e.file_name();
-            let lower = name.to_string_lossy().to_lowercase();
-            !excluded.contains(&lower.as_str())
-        })
-        .filter(|e| {
-            if !require_frontmatter {
-                return true;
-            }
-            fs::read_to_string(e.path())
-                .map(|c| c.starts_with("---\n") || c.starts_with("---\r\n"))
-                .unwrap_or(false)
-        })
-        .map(|e| e.path())
-        .collect()
 }
 
 fn generate_claude_command(install_dir: &Path, info: &PackageInfo) -> String {

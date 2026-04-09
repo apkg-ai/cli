@@ -61,6 +61,7 @@ pub fn run(opts: &RemoveOptions<'_>) -> Result<(), AppError> {
     // Clean up tool-setup files (e.g. .claude/agents/*, .cursor/skills/*)
     cleanup_claude_setup(&cwd, opts.package);
     cleanup_cursor_setup(&cwd, opts.package);
+    cleanup_codex_setup(&cwd, opts.package);
 
     display::success(&format!(
         "Removed {} from {}",
@@ -88,6 +89,19 @@ fn cleanup_claude_setup(project_root: &Path, package_name: &str) {
         }
         cleanup_empty_scope_dir(&pkg_dir, &dir);
     }
+}
+
+/// Remove Codex setup files (`.codex/agents/@scope/name/` or `.codex/agents/name/`)
+/// that belong to the given package.
+fn cleanup_codex_setup(project_root: &Path, package_name: &str) {
+    let pkg_path = crate::setup::config_pkg_path(package_name);
+    let dir = project_root.join(".codex").join("agents");
+
+    let pkg_dir = dir.join(&pkg_path);
+    if pkg_dir.is_dir() {
+        let _ = std::fs::remove_dir_all(&pkg_dir);
+    }
+    cleanup_empty_scope_dir(&pkg_dir, &dir);
 }
 
 /// Remove Cursor setup files (`.cursor/{type}/@scope/name/` or `.cursor/{type}/name/`)
@@ -249,6 +263,22 @@ mod tests {
 
         assert!(!pkg_dir.exists());
         assert!(!rules_dir.join("@acme").exists());
+    }
+
+    #[test]
+    fn test_cleanup_codex_setup_removes_agent_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let agents_dir = tmp.path().join(".codex").join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+
+        let pkg_dir = agents_dir.join("@acme").join("research-agent");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(pkg_dir.join("research-agent.toml"), "name = \"test\"").unwrap();
+
+        cleanup_codex_setup(tmp.path(), "@acme/research-agent");
+
+        assert!(!pkg_dir.exists());
+        assert!(!agents_dir.join("@acme").exists());
     }
 
     #[test]

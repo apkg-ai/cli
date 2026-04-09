@@ -2,102 +2,145 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{config_pkg_path, package_short_name, resolve_system_prompt, PackageInfo};
 use crate::config::manifest::PackageType;
 
-/// Generate and write a Codex SKILL.md for the given package.
+use super::{
+    config_pkg_path, find_definition_files, package_short_name, parse_frontmatter,
+    resolve_system_prompt, strip_frontmatter, PackageInfo,
+};
+
+/// Generate and write Codex agent TOML files for the given package.
+///
+/// If the package contains `.md` files with YAML frontmatter (actual agent/skill
+/// definitions), those are transformed into `.toml` files. Otherwise, a generated
+/// fallback TOML is written.
 pub fn setup_codex(
     project_root: &Path,
     install_dir: &Path,
     info: &PackageInfo,
-) -> Result<PathBuf, String> {
-    let content = generate_codex_skill_md(install_dir, info);
+) -> Result<Vec<PathBuf>, String> {
     let pkg_path = config_pkg_path(&info.name);
-    let target_dir = project_root.join(".codex").join("skills").join(&pkg_path);
-    fs::create_dir_all(&target_dir)
-        .map_err(|e| format!("Failed to create .codex/skills/{}/: {e}", pkg_path.display()))?;
+    let target_dir = project_root
+        .join(".codex")
+        .join("agents")
+        .join(&pkg_path);
+    fs::create_dir_all(&target_dir).map_err(|e| {
+        format!(
+            "Failed to create .codex/agents/{}/: {e}",
+            pkg_path.display()
+        )
+    })?;
 
-    let path = target_dir.join("SKILL.md");
-    fs::write(&path, content).map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
-    Ok(path)
+    let md_files = find_definition_files(install_dir, true);
+
+    if md_files.is_empty() {
+        let content = generate_fallback_toml(install_dir, info);
+        let short = package_short_name(&info.name);
+        let path = target_dir.join(format!("{short}.toml"));
+        fs::write(&path, content)
+            .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
+        return Ok(vec![path]);
+    }
+
+    let mut created = Vec::new();
+
+    for src in &md_files {
+        let raw = fs::read_to_string(src)
+            .map_err(|e| format!("Failed to read {}: {e}", src.display()))?;
+
+        let toml = md_to_toml(&raw, &info.name, &info.description);
+
+        let stem = src
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let dest = target_dir.join(format!("{stem}.toml"));
+        fs::write(&dest, &toml)
+            .map_err(|e| format!("Failed to write {}: {e}", dest.display()))?;
+        created.push(dest);
+    }
+
+    Ok(created)
 }
 
-fn generate_codex_skill_md(install_dir: &Path, info: &PackageInfo) -> String {
+/// Transform a markdown file (with YAML frontmatter) into Codex TOML.
+fn md_to_toml(content: &str, fallback_name: &str, fallback_desc: &str) -> String {
+    let pairs = parse_frontmatter(content);
+    let body = strip_frontmatter(content);
+
+    let name = frontmatter_value(&pairs, "name").unwrap_or(fallback_name);
+    let description = frontmatter_value(&pairs, "description").unwrap_or(fallback_desc);
+    let model = frontmatter_value(&pairs, "model");
+
+    generate_codex_toml(name, description, body, model)
+}
+
+/// Generate a fallback TOML when no `.md` definition files are present.
+fn generate_fallback_toml(install_dir: &Path, info: &PackageInfo) -> String {
+    let instructions = match info.package_type {
+        PackageType::Agent => {
+            if let Some(agent) = &info.agent {
+                if let Some(prompt_val) = &agent.system_prompt {
+                    resolve_system_prompt(prompt_val, install_dir)
+                } else {
+                    format!("{} agent", info.description)
+                }
+            } else {
+                format!("{} agent", info.description)
+            }
+        }
+        _ => info.description.clone(),
+    };
+
+    generate_codex_toml(&info.name, &info.description, &instructions, None)
+}
+
+/// Build a TOML string with the Codex agent schema.
+fn generate_codex_toml(
+    name: &str,
+    description: &str,
+    developer_instructions: &str,
+    model: Option<&str>,
+) -> String {
     let mut out = String::new();
 
-    // YAML frontmatter
-    let desc = info.description.replace('"', "'");
-    let _ = write!(
+    let _ = writeln!(out, "name = \"{}\"", escape_toml_basic(name));
+    let _ = writeln!(
         out,
-        "---\nname: \"{name}\"\ndescription: \"{name} — {desc}\"\n---\n\n",
-        name = info.name,
+        "description = \"{}\"",
+        escape_toml_basic(description)
     );
 
-    // Heading + description
-    let type_label = &info.package_type;
-    let _ = write!(
-        out,
-        "# {} ({type_label})\n\n{}\n",
-        info.name, info.description
-    );
-
-    match info.package_type {
-        PackageType::Skill => write_skill_section(&mut out, info),
-        PackageType::Agent => write_agent_section(&mut out, install_dir, info),
-        _ => {}
+    // Omit model if absent or "inherit" (inherit means use parent session model).
+    if let Some(m) = model {
+        if !m.eq_ignore_ascii_case("inherit") {
+            let _ = writeln!(out, "model = \"{}\"", escape_toml_basic(m));
+        }
     }
 
-    // Entry point
-    if let Some(main) = &info.main {
-        let _ = write!(out, "\n## Entry Point\n\n`{main}`\n");
-    }
-
-    // Install location
-    let _ = write!(out, "\nInstalled at: `{}/`\n", install_dir.display());
+    let escaped = escape_toml_multiline(developer_instructions);
+    let _ = write!(out, "developer_instructions = \"\"\"\n{escaped}\"\"\"\n");
 
     out
 }
 
-fn write_skill_section(out: &mut String, info: &PackageInfo) {
-    if let Some(skill) = &info.skill {
-        if !skill.capabilities.is_empty() {
-            out.push_str("\n## Capabilities\n\n");
-            for cap in &skill.capabilities {
-                let _ = writeln!(out, "- {cap}");
-            }
-        }
-    }
+/// Look up a value by key in a list of frontmatter pairs.
+fn frontmatter_value<'a>(pairs: &'a [(String, String)], key: &str) -> Option<&'a str> {
+    pairs
+        .iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| v.as_str())
 }
 
-fn write_agent_section(out: &mut String, install_dir: &Path, info: &PackageInfo) {
-    if let Some(agent) = &info.agent {
-        if let Some(prompt_val) = &agent.system_prompt {
-            let resolved = resolve_system_prompt(prompt_val, install_dir);
-            out.push_str("\n## System Prompt\n\n");
-            out.push_str(&resolved);
-            if !resolved.ends_with('\n') {
-                out.push('\n');
-            }
-        }
+/// Escape a string for use inside a TOML basic string (`"..."`).
+fn escape_toml_basic(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
 
-        if !agent.tools.is_empty() {
-            out.push_str("\n## Tools\n\n");
-            for tool in &agent.tools {
-                let req = if tool.required {
-                    "required"
-                } else {
-                    "optional"
-                };
-                let _ = writeln!(out, "- **{}** (`{}`) — {req}", tool.name, tool.package);
-            }
-        }
-
-        if !agent.model_preference.is_empty() {
-            out.push_str("\n## Model Preference\n\n");
-            out.push_str(&agent.model_preference.join(", "));
-            out.push('\n');
-        }
-    }
+/// Escape content for use inside a TOML multi-line basic string (`"""..."""`).
+fn escape_toml_multiline(s: &str) -> String {
+    // Inside """, the only problematic sequence is three or more consecutive quotes.
+    s.replace("\"\"\"", "\"\"\\\"")
 }
 
 #[cfg(test)]
@@ -151,43 +194,171 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_codex_skill_md_skill() {
-        let tmp = TempDir::new().unwrap();
-        let content = generate_codex_skill_md(tmp.path(), &skill_info());
-        assert!(content.contains("name: \"@acme/code-reviewer\""));
-        assert!(content.contains("description: \"@acme/code-reviewer"));
-        assert!(content.contains("# @acme/code-reviewer (skill)"));
-        assert!(content.contains("- code-review"));
-        assert!(content.contains("- bug-detection"));
-        assert!(content.contains("`src/index.ts`"));
+    fn test_generate_codex_toml_basic() {
+        let toml = generate_codex_toml("my-agent", "A helpful agent", "You are helpful.", None);
+        assert!(toml.contains("name = \"my-agent\""));
+        assert!(toml.contains("description = \"A helpful agent\""));
+        assert!(toml.contains("developer_instructions = \"\"\"\nYou are helpful.\"\"\""));
+        assert!(!toml.contains("model ="));
     }
 
     #[test]
-    fn test_generate_codex_skill_md_agent() {
+    fn test_generate_codex_toml_with_model() {
+        let toml = generate_codex_toml(
+            "my-agent",
+            "Agent",
+            "Instructions.",
+            Some("gpt-5.4-mini"),
+        );
+        assert!(toml.contains("model = \"gpt-5.4-mini\""));
+    }
+
+    #[test]
+    fn test_generate_codex_toml_inherit_model_omitted() {
+        let toml = generate_codex_toml("my-agent", "Agent", "Instructions.", Some("inherit"));
+        assert!(!toml.contains("model ="));
+    }
+
+    #[test]
+    fn test_generate_codex_toml_escapes_quotes() {
+        let toml =
+            generate_codex_toml("my-agent", "Agent with \"quotes\"", "Say \"hello\".", None);
+        assert!(toml.contains("description = \"Agent with \\\"quotes\\\"\""));
+        // Inside multi-line basic strings, isolated quotes don't need escaping
+        assert!(toml.contains("Say \"hello\"."));
+    }
+
+    #[test]
+    fn test_generate_codex_toml_multiline_instructions() {
+        let body = "Line one.\n\nLine two.\n\n## Section\n\nMore content.\n";
+        let toml = generate_codex_toml("agent", "desc", body, None);
+        assert!(toml.contains("developer_instructions = \"\"\"\nLine one."));
+        assert!(toml.contains("## Section"));
+        assert!(toml.contains("More content.\n\"\"\""));
+    }
+
+    #[test]
+    fn test_generate_codex_toml_escapes_triple_quotes() {
+        let body = "Text with \"\"\" inside.";
+        let toml = generate_codex_toml("agent", "desc", body, None);
+        assert!(toml.contains("\"\"\\\""));
+    }
+
+    #[test]
+    fn test_md_to_toml() {
+        let md = "---\nname: \"my-agent\"\ndescription: \"My agent\"\nmodel: gpt-5.4\n---\nYou are a specialist.\n";
+        let toml = md_to_toml(md, "fallback", "fallback desc");
+        assert!(toml.contains("name = \"my-agent\""));
+        assert!(toml.contains("description = \"My agent\""));
+        assert!(toml.contains("model = \"gpt-5.4\""));
+        assert!(toml.contains("developer_instructions = \"\"\"\nYou are a specialist.\n\"\"\""));
+    }
+
+    #[test]
+    fn test_md_to_toml_inherit_model() {
+        let md = "---\nname: \"agent\"\ndescription: \"desc\"\nmodel: inherit\n---\nBody.\n";
+        let toml = md_to_toml(md, "f", "f");
+        assert!(!toml.contains("model ="));
+    }
+
+    #[test]
+    fn test_md_to_toml_fallback_values() {
+        let md = "---\ncolor: green\n---\nBody only frontmatter has no name.\n";
+        let toml = md_to_toml(md, "pkg-name", "pkg description");
+        assert!(toml.contains("name = \"pkg-name\""));
+        assert!(toml.contains("description = \"pkg description\""));
+    }
+
+    #[test]
+    fn test_setup_codex_transforms_md_to_toml() {
         let tmp = TempDir::new().unwrap();
-        let content = generate_codex_skill_md(tmp.path(), &agent_info());
-        assert!(content.contains("name: \"@acme/research-agent\""));
-        assert!(content.contains("# @acme/research-agent (agent)"));
-        assert!(content.contains("## System Prompt"));
+        let install_dir = tmp.path().join("apkg_packages/@acme/research-agent");
+        fs::create_dir_all(&install_dir).unwrap();
+        fs::write(
+            install_dir.join("agent.md"),
+            "---\nname: \"research-agent\"\ndescription: \"Research things\"\n---\nYou are a researcher.\n",
+        )
+        .unwrap();
+
+        let paths = setup_codex(tmp.path(), &install_dir, &agent_info()).unwrap();
+        assert_eq!(paths.len(), 1);
+
+        let path = &paths[0];
+        assert!(path.exists());
+        assert_eq!(path.extension().unwrap(), "toml");
+        assert!(path
+            .parent()
+            .unwrap()
+            .ends_with("agents/@acme/research-agent"));
+
+        let content = fs::read_to_string(path).unwrap();
+        assert!(content.contains("name = \"research-agent\""));
+        assert!(content.contains("description = \"Research things\""));
+        assert!(content.contains("developer_instructions = \"\"\"\nYou are a researcher.\n\"\"\""));
+        // No YAML frontmatter in output
+        assert!(!content.contains("---"));
+    }
+
+    #[test]
+    fn test_setup_codex_fallback_from_package_info() {
+        let tmp = TempDir::new().unwrap();
+        let install_dir = tmp.path().join("apkg_packages/@acme/research-agent");
+        fs::create_dir_all(&install_dir).unwrap();
+
+        let paths = setup_codex(tmp.path(), &install_dir, &agent_info()).unwrap();
+        assert_eq!(paths.len(), 1);
+
+        let path = &paths[0];
+        assert!(path.exists());
+        assert_eq!(path.file_name().unwrap(), "research-agent.toml");
+
+        let content = fs::read_to_string(path).unwrap();
+        assert!(content.contains("name = \"@acme/research-agent\""));
         assert!(content.contains("You are a research assistant."));
-        assert!(content.contains("**web-search** (`@acme/web-search`) — required"));
-        assert!(content.contains("**formatter** (`@acme/fmt`) — optional"));
-        assert!(content.contains("claude-sonnet-4-6, gpt-4o"));
     }
 
     #[test]
-    fn test_setup_codex_creates_file() {
+    fn test_setup_codex_fallback_skill() {
         let tmp = TempDir::new().unwrap();
-        fs::create_dir(tmp.path().join(".codex")).unwrap();
         let install_dir = tmp.path().join("apkg_packages/@acme/code-reviewer");
         fs::create_dir_all(&install_dir).unwrap();
 
-        let path = setup_codex(tmp.path(), &install_dir, &skill_info()).unwrap();
-        assert!(path.exists());
-        assert_eq!(path.file_name().unwrap(), "SKILL.md");
-        assert!(path.starts_with(
-            tmp.path()
-                .join(".codex/skills/@acme/code-reviewer")
-        ));
+        let paths = setup_codex(tmp.path(), &install_dir, &skill_info()).unwrap();
+        assert_eq!(paths.len(), 1);
+
+        let content = fs::read_to_string(&paths[0]).unwrap();
+        assert!(content.contains("name = \"@acme/code-reviewer\""));
+        assert!(content.contains("AI-powered code review"));
+    }
+
+    #[test]
+    fn test_setup_codex_multiple_definitions() {
+        let tmp = TempDir::new().unwrap();
+        let install_dir = tmp.path().join("apkg_packages/@acme/research-agent");
+        fs::create_dir_all(&install_dir).unwrap();
+        fs::write(
+            install_dir.join("explorer.md"),
+            "---\nname: \"explorer\"\ndescription: \"Explore code\"\n---\nExplore the codebase.\n",
+        )
+        .unwrap();
+        fs::write(
+            install_dir.join("worker.md"),
+            "---\nname: \"worker\"\ndescription: \"Do work\"\n---\nDo the work.\n",
+        )
+        .unwrap();
+
+        let paths = setup_codex(tmp.path(), &install_dir, &agent_info()).unwrap();
+        assert_eq!(paths.len(), 2);
+        assert!(paths.iter().all(|p| p.exists()));
+        assert!(paths
+            .iter()
+            .all(|p| p.extension().unwrap() == "toml"));
+
+        let names: Vec<_> = paths
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.contains(&"explorer.toml".to_string()));
+        assert!(names.contains(&"worker.toml".to_string()));
     }
 }

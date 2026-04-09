@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::manifest::PackageType;
 
-use super::{config_pkg_path, package_short_name, resolve_system_prompt, PackageInfo};
+use super::{config_pkg_path, find_definition_files, package_short_name, resolve_system_prompt, strip_frontmatter, PackageInfo};
 
 /// Generate and write Cursor config files for the given package.
 ///
@@ -142,16 +142,6 @@ fn wrap_skill_frontmatter(info: &PackageInfo, frontmatter_name: &str, content: &
     format!("{header}{body}")
 }
 
-/// Strip YAML frontmatter from content, returning only the body.
-fn strip_frontmatter(content: &str) -> &str {
-    if content.starts_with("---\n") || content.starts_with("---\r\n") {
-        if let Some(end) = content[3..].find("\n---") {
-            let after = end + 3 + 4; // skip past closing ---\n
-            return content[after..].trim_start_matches('\n');
-        }
-    }
-    content
-}
 
 // ---------------------------------------------------------------------------
 // Agents — .cursor/agents/{stem}/ (.md with name/description/model frontmatter)
@@ -401,41 +391,6 @@ fn prepend_rule_frontmatter(info: &PackageInfo, content: &str) -> String {
     format!("{header}{body}")
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Find `.md` files in `install_dir` that are likely definitions (not docs).
-fn find_definition_files(install_dir: &Path, require_frontmatter: bool) -> Vec<PathBuf> {
-    let Ok(entries) = fs::read_dir(install_dir) else {
-        return Vec::new();
-    };
-
-    let excluded: &[&str] = &["readme.md", "changelog.md", "license.md"];
-
-    entries
-        .filter_map(Result::ok)
-        .filter(|e| {
-            e.path()
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
-        })
-        .filter(|e| {
-            let name = e.file_name();
-            let lower = name.to_string_lossy().to_lowercase();
-            !excluded.contains(&lower.as_str())
-        })
-        .filter(|e| {
-            if !require_frontmatter {
-                return true;
-            }
-            fs::read_to_string(e.path())
-                .map(|c| c.starts_with("---\n") || c.starts_with("---\r\n"))
-                .unwrap_or(false)
-        })
-        .map(|e| e.path())
-        .collect()
-}
 
 #[cfg(test)]
 mod tests {

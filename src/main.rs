@@ -369,10 +369,10 @@ enum SetupTargetArg {
     All,
     Cursor,
     ClaudeCode,
+    Codex,
     // TODO: re-enable when ready
     // Windsurf,
     // Kiro,
-    // Codex,
 }
 
 fn main() -> ExitCode {
@@ -519,10 +519,10 @@ async fn run(cli: Cli) -> Result<(), AppError> {
                     SetupTargetArg::All => setup::SetupTarget::All,
                     SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
                     SetupTargetArg::ClaudeCode => setup::SetupTarget::Only(setup::Tool::ClaudeCode),
+                    SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
                     // TODO: re-enable when ready
                     // SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
                     // SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
-                    // SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
                 })
             };
             commands::add::run(commands::add::AddOptions {
@@ -614,10 +614,10 @@ async fn run(cli: Cli) -> Result<(), AppError> {
                     SetupTargetArg::All => setup::SetupTarget::All,
                     SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
                     SetupTargetArg::ClaudeCode => setup::SetupTarget::Only(setup::Tool::ClaudeCode),
+                    SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
                     // TODO: re-enable when ready
                     // SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
                     // SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
-                    // SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
                 })
             };
             commands::install::run(commands::install::InstallOptions {
@@ -655,10 +655,10 @@ async fn run(cli: Cli) -> Result<(), AppError> {
                     SetupTargetArg::All => setup::SetupTarget::All,
                     SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
                     SetupTargetArg::ClaudeCode => setup::SetupTarget::Only(setup::Tool::ClaudeCode),
+                    SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
                     // TODO: re-enable when ready
                     // SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
                     // SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
-                    // SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
                 })
             };
             commands::update::run(commands::update::UpdateOptions {

@@ -1,7 +1,7 @@
 pub mod claude;
+pub mod codex;
 pub mod cursor;
 // TODO: re-enable when ready
-// pub mod codex;
 // pub mod kiro;
 // pub mod windsurf;
 
@@ -84,10 +84,10 @@ fn default_required() -> bool {
 pub enum Tool {
     Cursor,
     ClaudeCode,
+    Codex,
     // TODO: re-enable when ready
     // Windsurf,
     // Kiro,
-    // Codex,
 }
 
 impl Tool {
@@ -96,10 +96,10 @@ impl Tool {
         match key {
             "cursor" => Some(Tool::Cursor),
             "claude-code" => Some(Tool::ClaudeCode),
+            "codex" => Some(Tool::Codex),
             // TODO: re-enable when ready
             // "windsurf" => Some(Tool::Windsurf),
             // "kiro" => Some(Tool::Kiro),
-            // "codex" => Some(Tool::Codex),
             _ => None,
         }
     }
@@ -110,10 +110,10 @@ impl fmt::Display for Tool {
         match self {
             Tool::Cursor => write!(f, "Cursor"),
             Tool::ClaudeCode => write!(f, "Claude Code"),
+            Tool::Codex => write!(f, "Codex"),
             // TODO: re-enable when ready
             // Tool::Windsurf => write!(f, "Windsurf"),
             // Tool::Kiro => write!(f, "Kiro"),
-            // Tool::Codex => write!(f, "Codex"),
         }
     }
 }
@@ -151,15 +151,15 @@ pub fn detect_tools(project_root: &Path) -> Vec<Tool> {
     if project_root.join(".claude").is_dir() {
         tools.push(Tool::ClaudeCode);
     }
+    if project_root.join(".codex").is_dir() {
+        tools.push(Tool::Codex);
+    }
     // TODO: re-enable when ready
     // if project_root.join(".windsurf").is_dir() {
     //     tools.push(Tool::Windsurf);
     // }
     // if project_root.join(".kiro").is_dir() {
     //     tools.push(Tool::Kiro);
-    // }
-    // if project_root.join(".codex").is_dir() {
-    //     tools.push(Tool::Codex);
     // }
     tools
 }
@@ -187,6 +187,87 @@ pub fn package_short_name(name: &str) -> &str {
     name.rsplit('/').next().unwrap_or(name)
 }
 
+
+/// Find `.md` files in `install_dir` that contain YAML frontmatter and are
+/// likely agent/skill definitions (not documentation).
+pub(crate) fn find_definition_files(install_dir: &Path, require_frontmatter: bool) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(install_dir) else {
+        return Vec::new();
+    };
+
+    let excluded: &[&str] = &["readme.md", "changelog.md", "license.md"];
+
+    entries
+        .filter_map(Result::ok)
+        .filter(|e| {
+            e.path()
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+        })
+        .filter(|e| {
+            let name = e.file_name();
+            let lower = name.to_string_lossy().to_lowercase();
+            !excluded.contains(&lower.as_str())
+        })
+        .filter(|e| {
+            if !require_frontmatter {
+                return true;
+            }
+            fs::read_to_string(e.path())
+                .map(|c| c.starts_with("---\n") || c.starts_with("---\r\n"))
+                .unwrap_or(false)
+        })
+        .map(|e| e.path())
+        .collect()
+}
+
+/// Strip YAML frontmatter from content, returning only the body.
+pub(crate) fn strip_frontmatter(content: &str) -> &str {
+    if content.starts_with("---\n") || content.starts_with("---\r\n") {
+        if let Some(end) = content[3..].find("\n---") {
+            let after = end + 3 + 4; // skip past closing ---\n
+            return content[after..].trim_start_matches('\n');
+        }
+    }
+    content
+}
+
+/// Parse YAML frontmatter into key-value pairs.
+/// Returns an empty vec if no frontmatter is present.
+pub(crate) fn parse_frontmatter(content: &str) -> Vec<(String, String)> {
+    let start = if content.starts_with("---\n") {
+        4
+    } else if content.starts_with("---\r\n") {
+        5
+    } else {
+        return Vec::new();
+    };
+
+    let Some(end) = content[3..].find("\n---") else {
+        return Vec::new();
+    };
+
+    let block = &content[start..3 + end];
+    block
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() {
+                return None;
+            }
+            let colon = line.find(':')?;
+            let key = line[..colon].trim().to_string();
+            let mut val = line[colon + 1..].trim().to_string();
+            // Strip surrounding quotes
+            if (val.starts_with('"') && val.ends_with('"'))
+                || (val.starts_with('\'') && val.ends_with('\''))
+            {
+                val = val[1..val.len() - 1].to_string();
+            }
+            Some((key, val))
+        })
+        .collect()
+}
 
 /// If the value looks like a file path, read its content from the package dir.
 /// Otherwise return it as-is (inline text).
@@ -278,10 +359,12 @@ pub fn run_setup(ctx: &SetupContext) -> SetupReport {
             Tool::Cursor => {
                 cursor::setup_cursor(&ctx.project_root, &ctx.install_dir, &info)
             }
+            Tool::Codex => {
+                codex::setup_codex(&ctx.project_root, &ctx.install_dir, &info)
+            }
             // TODO: re-enable when ready
             // Tool::Windsurf => windsurf::setup_windsurf(..),
             // Tool::Kiro => kiro::setup_kiro(..),
-            // Tool::Codex => codex::setup_codex(..),
         };
         match result {
             Ok(paths) => {
@@ -782,6 +865,7 @@ mod tests {
     fn test_tool_display() {
         assert_eq!(Tool::Cursor.to_string(), "Cursor");
         assert_eq!(Tool::ClaudeCode.to_string(), "Claude Code");
+        assert_eq!(Tool::Codex.to_string(), "Codex");
     }
 
     // TODO: re-enable when ready
@@ -801,43 +885,85 @@ mod tests {
     //     assert_eq!(tools, vec![Tool::Kiro]);
     // }
 
-    // #[test]
-    // fn test_detect_tools_codex_only() {
-    //     let tmp = TempDir::new().unwrap();
-    //     fs::create_dir(tmp.path().join(".codex")).unwrap();
-    //     let tools = detect_tools(tmp.path());
-    //     assert_eq!(tools, vec![Tool::Codex]);
-    // }
+    #[test]
+    fn test_detect_tools_codex_only() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join(".codex")).unwrap();
+        let tools = detect_tools(tmp.path());
+        assert_eq!(tools, vec![Tool::Codex]);
+    }
 
-    // #[test]
-    // fn test_detect_tools_all_five() {
-    //     let tmp = TempDir::new().unwrap();
-    //     fs::create_dir(tmp.path().join(".cursor")).unwrap();
-    //     fs::create_dir(tmp.path().join(".claude")).unwrap();
-    //     fs::create_dir(tmp.path().join(".windsurf")).unwrap();
-    //     fs::create_dir(tmp.path().join(".kiro")).unwrap();
-    //     fs::create_dir(tmp.path().join(".codex")).unwrap();
-    //     let tools = detect_tools(tmp.path());
-    //     assert_eq!(
-    //         tools,
-    //         vec![
-    //             Tool::Cursor,
-    //             Tool::ClaudeCode,
-    //             Tool::Windsurf,
-    //             Tool::Kiro,
-    //             Tool::Codex
-    //         ]
-    //     );
-    // }
+    #[test]
+    fn test_detect_tools_all_three() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join(".cursor")).unwrap();
+        fs::create_dir(tmp.path().join(".claude")).unwrap();
+        fs::create_dir(tmp.path().join(".codex")).unwrap();
+        let tools = detect_tools(tmp.path());
+        assert_eq!(
+            tools,
+            vec![Tool::Cursor, Tool::ClaudeCode, Tool::Codex]
+        );
+    }
 
     #[test]
     fn test_tool_from_key() {
         assert_eq!(Tool::from_key("cursor"), Some(Tool::Cursor));
         assert_eq!(Tool::from_key("claude-code"), Some(Tool::ClaudeCode));
+        assert_eq!(Tool::from_key("codex"), Some(Tool::Codex));
         assert_eq!(Tool::from_key("unknown"), None);
         // TODO: re-enable when ready
         // assert_eq!(Tool::from_key("windsurf"), Some(Tool::Windsurf));
         // assert_eq!(Tool::from_key("kiro"), Some(Tool::Kiro));
-        // assert_eq!(Tool::from_key("codex"), Some(Tool::Codex));
+    }
+
+    #[test]
+    fn test_parse_frontmatter_basic() {
+        let content = "---\nname: \"my-agent\"\ndescription: \"A test agent\"\nmodel: gpt-4o\n---\nBody here.\n";
+        let pairs = parse_frontmatter(content);
+        assert_eq!(pairs.len(), 3);
+        assert_eq!(pairs[0], ("name".to_string(), "my-agent".to_string()));
+        assert_eq!(pairs[1], ("description".to_string(), "A test agent".to_string()));
+        assert_eq!(pairs[2], ("model".to_string(), "gpt-4o".to_string()));
+    }
+
+    #[test]
+    fn test_parse_frontmatter_no_frontmatter() {
+        let content = "Just some text.";
+        let pairs = parse_frontmatter(content);
+        assert!(pairs.is_empty());
+    }
+
+    #[test]
+    fn test_strip_frontmatter_basic() {
+        let content = "---\nname: agent\n---\nBody content.\n";
+        assert_eq!(strip_frontmatter(content), "Body content.\n");
+    }
+
+    #[test]
+    fn test_strip_frontmatter_no_frontmatter() {
+        let content = "Just text.";
+        assert_eq!(strip_frontmatter(content), "Just text.");
+    }
+
+    #[test]
+    fn test_find_definition_files_with_frontmatter() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("agent.md"), "---\nname: a\n---\nBody").unwrap();
+        fs::write(tmp.path().join("README.md"), "---\ntitle: hi\n---\n").unwrap();
+        fs::write(tmp.path().join("notes.md"), "No frontmatter").unwrap();
+        let files = find_definition_files(tmp.path(), true);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_name().unwrap(), "agent.md");
+    }
+
+    #[test]
+    fn test_find_definition_files_no_frontmatter_required() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("cmd.md"), "Run audit.").unwrap();
+        fs::write(tmp.path().join("README.md"), "Project readme").unwrap();
+        let files = find_definition_files(tmp.path(), false);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_name().unwrap(), "cmd.md");
     }
 }

@@ -20,18 +20,25 @@ pub fn setup_codex(
     info: &PackageInfo,
 ) -> Result<Vec<PathBuf>, String> {
     let pkg_path = config_pkg_path(&info.name);
+    let type_dir = info.package_type.dir_name();
     let target_dir = project_root
         .join(".codex")
-        .join("agents")
+        .join(type_dir)
         .join(&pkg_path);
     fs::create_dir_all(&target_dir).map_err(|e| {
         format!(
-            "Failed to create .codex/agents/{}/: {e}",
+            "Failed to create .codex/{type_dir}/{}/: {e}",
             pkg_path.display()
         )
     })?;
 
     let md_files = find_definition_files(install_dir, true);
+
+    // Skills stay as markdown for Codex — copy them directly instead of
+    // transforming to TOML.
+    if info.package_type == PackageType::Skill {
+        return setup_codex_skill(&target_dir, install_dir, info, &md_files);
+    }
 
     if md_files.is_empty() {
         let content = generate_fallback_toml(install_dir, info);
@@ -61,6 +68,50 @@ pub fn setup_codex(
     }
 
     Ok(created)
+}
+
+/// Set up a skill for Codex by copying markdown files as-is (no TOML
+/// transformation). When no `.md` definition files exist, a fallback `.md`
+/// file is generated from the package info.
+fn setup_codex_skill(
+    target_dir: &Path,
+    install_dir: &Path,
+    info: &PackageInfo,
+    md_files: &[PathBuf],
+) -> Result<Vec<PathBuf>, String> {
+    if md_files.is_empty() {
+        let short = package_short_name(&info.name);
+        let dest = target_dir.join(format!("{short}.md"));
+        let content = generate_fallback_skill_md(install_dir, info);
+        fs::write(&dest, content)
+            .map_err(|e| format!("Failed to write {}: {e}", dest.display()))?;
+        return Ok(vec![dest]);
+    }
+
+    let mut created = Vec::new();
+    for src in md_files {
+        let file_name = src
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let dest = target_dir.join(&file_name);
+        fs::copy(src, &dest)
+            .map_err(|e| format!("Failed to copy {} to {}: {e}", src.display(), dest.display()))?;
+        created.push(dest);
+    }
+    Ok(created)
+}
+
+/// Generate a fallback markdown file for a skill when no `.md` definitions
+/// are present.
+fn generate_fallback_skill_md(_install_dir: &Path, info: &PackageInfo) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "---");
+    let _ = writeln!(out, "name: \"{}\"", info.name);
+    let _ = writeln!(out, "description: \"{}\"", info.description);
+    let _ = writeln!(out, "---");
+    let _ = writeln!(out, "{}", info.description);
+    out
 }
 
 /// Transform a markdown file (with YAML frontmatter) into Codex TOML.
@@ -326,9 +377,67 @@ mod tests {
         let paths = setup_codex(tmp.path(), &install_dir, &skill_info()).unwrap();
         assert_eq!(paths.len(), 1);
 
-        let content = fs::read_to_string(&paths[0]).unwrap();
-        assert!(content.contains("name = \"@acme/code-reviewer\""));
+        let path = &paths[0];
+        assert!(path
+            .parent()
+            .unwrap()
+            .ends_with("skills/@acme/code-reviewer"));
+        assert_eq!(path.extension().unwrap(), "md");
+
+        let content = fs::read_to_string(path).unwrap();
+        assert!(content.contains("name: \"@acme/code-reviewer\""));
         assert!(content.contains("AI-powered code review"));
+    }
+
+    #[test]
+    fn test_setup_codex_skill_copies_md_as_is() {
+        let tmp = TempDir::new().unwrap();
+        let install_dir = tmp.path().join("apkg_packages/@acme/code-reviewer");
+        fs::create_dir_all(&install_dir).unwrap();
+        let original =
+            "---\nname: \"review\"\ndescription: \"Review code\"\n---\nYou review code carefully.\n";
+        fs::write(install_dir.join("review.md"), original).unwrap();
+
+        let paths = setup_codex(tmp.path(), &install_dir, &skill_info()).unwrap();
+        assert_eq!(paths.len(), 1);
+
+        let path = &paths[0];
+        assert_eq!(path.extension().unwrap(), "md");
+        assert!(path
+            .parent()
+            .unwrap()
+            .ends_with("skills/@acme/code-reviewer"));
+
+        let content = fs::read_to_string(path).unwrap();
+        assert_eq!(content, original);
+    }
+
+    #[test]
+    fn test_setup_codex_skill_copies_multiple_md() {
+        let tmp = TempDir::new().unwrap();
+        let install_dir = tmp.path().join("apkg_packages/@acme/code-reviewer");
+        fs::create_dir_all(&install_dir).unwrap();
+        fs::write(
+            install_dir.join("review.md"),
+            "---\nname: \"review\"\ndescription: \"Review\"\n---\nReview code.\n",
+        )
+        .unwrap();
+        fs::write(
+            install_dir.join("lint.md"),
+            "---\nname: \"lint\"\ndescription: \"Lint\"\n---\nLint code.\n",
+        )
+        .unwrap();
+
+        let paths = setup_codex(tmp.path(), &install_dir, &skill_info()).unwrap();
+        assert_eq!(paths.len(), 2);
+        assert!(paths.iter().all(|p| p.extension().unwrap() == "md"));
+
+        let names: Vec<_> = paths
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.contains(&"review.md".to_string()));
+        assert!(names.contains(&"lint.md".to_string()));
     }
 
     #[test]

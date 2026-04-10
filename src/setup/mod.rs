@@ -207,7 +207,16 @@ pub(crate) fn find_definition_files(install_dir: &Path, require_frontmatter: boo
         .filter(|e| {
             let name = e.file_name();
             let lower = name.to_string_lossy().to_lowercase();
-            !excluded.contains(&lower.as_str())
+            let is_excluded_name = excluded.contains(&lower.as_str());
+
+            if is_excluded_name {
+                // Even excluded names are kept if they have frontmatter
+                // (frontmatter = definition file, not documentation).
+                return fs::read_to_string(e.path())
+                    .map(|c| c.starts_with("---\n") || c.starts_with("---\r\n"))
+                    .unwrap_or(false);
+            }
+            true
         })
         .filter(|e| {
             if !require_frontmatter {
@@ -950,11 +959,39 @@ mod tests {
     fn test_find_definition_files_with_frontmatter() {
         let tmp = TempDir::new().unwrap();
         fs::write(tmp.path().join("agent.md"), "---\nname: a\n---\nBody").unwrap();
+        // README.md with frontmatter is now included (frontmatter = definition)
         fs::write(tmp.path().join("README.md"), "---\ntitle: hi\n---\n").unwrap();
         fs::write(tmp.path().join("notes.md"), "No frontmatter").unwrap();
         let files = find_definition_files(tmp.path(), true);
+        assert_eq!(files.len(), 2);
+        let names: Vec<_> = files.iter().map(|f| f.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        assert!(names.contains(&"agent.md".to_string()));
+        assert!(names.contains(&"README.md".to_string()));
+    }
+
+    #[test]
+    fn test_find_definition_files_excluded_name_without_frontmatter() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("changelog.md"), "Just a plain changelog").unwrap();
+        fs::write(tmp.path().join("agent.md"), "---\nname: a\n---\nBody").unwrap();
+        let files = find_definition_files(tmp.path(), false);
+        // changelog.md without frontmatter is excluded, agent.md is included
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].file_name().unwrap(), "agent.md");
+    }
+
+    #[test]
+    fn test_find_definition_files_excluded_name_with_frontmatter() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("changelog.md"),
+            "---\nname: changelog\n---\nGenerate a changelog.",
+        )
+        .unwrap();
+        let files = find_definition_files(tmp.path(), false);
+        // changelog.md WITH frontmatter is included
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_name().unwrap(), "changelog.md");
     }
 
     #[test]

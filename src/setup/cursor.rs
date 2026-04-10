@@ -732,7 +732,8 @@ mod tests {
             "---\nname: agent\n---\nContent",
         )
         .unwrap();
-        fs::write(tmp.path().join("README.md"), "---\ntitle: hi\n---\n").unwrap();
+        // README.md without frontmatter is excluded
+        fs::write(tmp.path().join("README.md"), "Project readme").unwrap();
         fs::write(tmp.path().join("notes.md"), "No frontmatter").unwrap();
 
         let files = find_definition_files(tmp.path(), true);

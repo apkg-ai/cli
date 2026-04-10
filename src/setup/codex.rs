@@ -20,7 +20,12 @@ pub fn setup_codex(
     info: &PackageInfo,
 ) -> Result<Vec<PathBuf>, String> {
     let pkg_path = config_pkg_path(&info.name);
-    let type_dir = info.package_type.dir_name();
+    // Codex treats commands as skills — place them in the skills directory.
+    let type_dir = if info.package_type == PackageType::Command {
+        PackageType::Skill.dir_name()
+    } else {
+        info.package_type.dir_name()
+    };
     let target_dir = project_root
         .join(".codex")
         .join(type_dir)
@@ -32,12 +37,14 @@ pub fn setup_codex(
         )
     })?;
 
-    let md_files = find_definition_files(install_dir, true);
+    let require_frontmatter = !matches!(info.package_type, PackageType::Command);
+    let md_files = find_definition_files(install_dir, require_frontmatter);
 
-    // Skills stay as markdown for Codex — copy them directly instead of
-    // transforming to TOML.
-    if info.package_type == PackageType::Skill {
-        return setup_codex_skill(&target_dir, install_dir, info, &md_files);
+    // Skills (and commands, which Codex treats as skills) stay as markdown —
+    // copy them directly instead of transforming to TOML.
+    if matches!(info.package_type, PackageType::Skill | PackageType::Command) {
+        let rename_to_skill = info.package_type == PackageType::Command;
+        return setup_codex_skill(&target_dir, install_dir, info, &md_files, rename_to_skill);
     }
 
     if md_files.is_empty() {
@@ -73,15 +80,23 @@ pub fn setup_codex(
 /// Set up a skill for Codex by copying markdown files as-is (no TOML
 /// transformation). When no `.md` definition files exist, a fallback `.md`
 /// file is generated from the package info.
+///
+/// When `rename_to_skill` is true (commands promoted to skills), all files
+/// are written as `SKILL.md` to match the Codex skill convention.
 fn setup_codex_skill(
     target_dir: &Path,
     install_dir: &Path,
     info: &PackageInfo,
     md_files: &[PathBuf],
+    rename_to_skill: bool,
 ) -> Result<Vec<PathBuf>, String> {
     if md_files.is_empty() {
-        let short = package_short_name(&info.name);
-        let dest = target_dir.join(format!("{short}.md"));
+        let dest_name = if rename_to_skill {
+            "SKILL.md".to_string()
+        } else {
+            format!("{}.md", package_short_name(&info.name))
+        };
+        let dest = target_dir.join(dest_name);
         let content = generate_fallback_skill_md(install_dir, info);
         fs::write(&dest, content)
             .map_err(|e| format!("Failed to write {}: {e}", dest.display()))?;
@@ -89,12 +104,15 @@ fn setup_codex_skill(
     }
 
     let mut created = Vec::new();
-    for src in md_files {
-        let file_name = src
-            .file_name()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let dest = target_dir.join(&file_name);
+    for (i, src) in md_files.iter().enumerate() {
+        let dest_name = if rename_to_skill && i == 0 {
+            "SKILL.md".to_string()
+        } else {
+            src.file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        };
+        let dest = target_dir.join(&dest_name);
         fs::copy(src, &dest)
             .map_err(|e| format!("Failed to copy {} to {}: {e}", src.display(), dest.display()))?;
         created.push(dest);
@@ -469,5 +487,98 @@ mod tests {
             .collect();
         assert!(names.contains(&"explorer.toml".to_string()));
         assert!(names.contains(&"worker.toml".to_string()));
+    }
+
+    // --- Command-as-skill tests ---
+
+    fn command_info() -> PackageInfo {
+        PackageInfo {
+            name: "@sheplu/generate-changelog".to_string(),
+            package_type: PackageType::Command,
+            description: "Generate a changelog from git history".to_string(),
+            main: None,
+            skill: None,
+            agent: None,
+        }
+    }
+
+    #[test]
+    fn test_setup_codex_command_as_skill_copies_md() {
+        let tmp = TempDir::new().unwrap();
+        let install_dir = tmp.path().join("apkg_packages/@sheplu/generate-changelog");
+        fs::create_dir_all(&install_dir).unwrap();
+        let original = "---\nname: changelog\ndescription: Generate a changelog\n---\nGenerate a structured changelog.\n";
+        fs::write(install_dir.join("changelog.md"), original).unwrap();
+
+        let paths = setup_codex(tmp.path(), &install_dir, &command_info()).unwrap();
+        assert_eq!(paths.len(), 1);
+
+        let path = &paths[0];
+        // Commands are renamed to SKILL.md for Codex
+        assert_eq!(path.file_name().unwrap(), "SKILL.md");
+        // Commands go into the skills directory for Codex
+        assert!(path
+            .parent()
+            .unwrap()
+            .ends_with("skills/@sheplu/generate-changelog"));
+
+        let content = fs::read_to_string(path).unwrap();
+        assert_eq!(content, original);
+    }
+
+    #[test]
+    fn test_setup_codex_command_as_skill_fallback() {
+        let tmp = TempDir::new().unwrap();
+        let install_dir = tmp.path().join("apkg_packages/@sheplu/generate-changelog");
+        fs::create_dir_all(&install_dir).unwrap();
+
+        let paths = setup_codex(tmp.path(), &install_dir, &command_info()).unwrap();
+        assert_eq!(paths.len(), 1);
+
+        let path = &paths[0];
+        assert_eq!(path.file_name().unwrap(), "SKILL.md");
+        assert!(path
+            .parent()
+            .unwrap()
+            .ends_with("skills/@sheplu/generate-changelog"));
+
+        let content = fs::read_to_string(path).unwrap();
+        assert!(content.contains("name:"));
+        assert!(content.contains("Generate a changelog"));
+    }
+
+    #[test]
+    fn test_setup_codex_command_as_skill_plain_md() {
+        let tmp = TempDir::new().unwrap();
+        let install_dir = tmp.path().join("apkg_packages/@sheplu/generate-changelog");
+        fs::create_dir_all(&install_dir).unwrap();
+        // Command with no frontmatter — should still be found (require_frontmatter=false)
+        fs::write(
+            install_dir.join("audit.md"),
+            "Run a comprehensive audit of the project.",
+        )
+        .unwrap();
+
+        let paths = setup_codex(tmp.path(), &install_dir, &command_info()).unwrap();
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].file_name().unwrap(), "SKILL.md");
+
+        let content = fs::read_to_string(&paths[0]).unwrap();
+        assert!(content.contains("Run a comprehensive audit"));
+    }
+
+    #[test]
+    fn test_setup_codex_actual_skill_keeps_original_name() {
+        // Verify that real skills are NOT renamed to SKILL.md
+        let tmp = TempDir::new().unwrap();
+        let install_dir = tmp.path().join("apkg_packages/@acme/code-reviewer");
+        fs::create_dir_all(&install_dir).unwrap();
+        let original =
+            "---\nname: \"review\"\ndescription: \"Review code\"\n---\nYou review code carefully.\n";
+        fs::write(install_dir.join("review.md"), original).unwrap();
+
+        let paths = setup_codex(tmp.path(), &install_dir, &skill_info()).unwrap();
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].file_name().unwrap(), "review.md");
     }
 }

@@ -290,8 +290,8 @@ mod tests {
 
         // Should be ignored: no frontmatter
         fs::write(install_dir.join("notes.md"), "Just some notes.").unwrap();
-        // Should be ignored: excluded name
-        fs::write(install_dir.join("README.md"), "---\nname: readme\n---\nHello").unwrap();
+        // Should be ignored: excluded name without frontmatter
+        fs::write(install_dir.join("README.md"), "Project readme").unwrap();
         // Should be copied: valid definition
         fs::write(
             install_dir.join("agent.md"),
@@ -316,7 +316,8 @@ mod tests {
             "---\nname: agent\n---\nContent",
         )
         .unwrap();
-        fs::write(tmp.path().join("README.md"), "---\ntitle: hi\n---\n").unwrap();
+        // README.md without frontmatter is excluded
+        fs::write(tmp.path().join("README.md"), "Project readme").unwrap();
         fs::write(tmp.path().join("notes.md"), "No frontmatter").unwrap();
         fs::write(tmp.path().join("other.txt"), "---\nfake\n---\n").unwrap();
 

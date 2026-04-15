@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, VecDeque};
+use std::path::Path;
 
 use indicatif::ProgressBar;
 use semver::VersionReq;
@@ -6,7 +7,9 @@ use semver::VersionReq;
 use crate::api::client::ApiClient;
 use crate::api::types::{PackageMetadata, VersionMetadata};
 use crate::config::lockfile::{self, Lockfile};
+use crate::config::{cache, manifest};
 use crate::error::AppError;
+use crate::util::{integrity, tarball};
 
 pub struct ResolvedPackage {
     pub version: String,
@@ -22,11 +25,17 @@ pub struct ResolutionResult {
 }
 
 /// Greedy BFS dependency resolver. Conflicts are hard errors (no backtracking).
+///
+/// `install_root` is the project root where `apkg_packages/` lives. When the
+/// registry does not include dependency information in version metadata, the
+/// resolver downloads and extracts each package so it can read the manifest
+/// (`apkg.json`) to discover transitive dependencies.
 pub async fn resolve(
     client: &ApiClient,
     dependencies: &BTreeMap<String, String>,
     existing_lockfile: Option<&Lockfile>,
     pb: &ProgressBar,
+    install_root: &Path,
 ) -> Result<ResolutionResult, AppError> {
     let mut resolved: BTreeMap<String, ResolvedPackage> = BTreeMap::new();
     let mut queue: VecDeque<(String, String)> = dependencies
@@ -71,17 +80,25 @@ pub async fn resolve(
                 if let Ok(locked_version) = semver::Version::parse(&locked.version) {
                     if req.matches(&locked_version) {
                         pb.set_message(format!("Using locked {name}@{}", locked.version));
+
+                        // If the locked entry has deps, use them directly.
+                        // Otherwise, check the installed manifest for deps.
+                        let deps = if locked.dependencies.is_empty() {
+                            read_installed_deps(install_root, &name)
+                        } else {
+                            locked.dependencies.clone()
+                        };
+
                         let pkg = ResolvedPackage {
                             version: locked.version.clone(),
                             tarball_url: locked.resolved.clone(),
                             integrity: locked.integrity.clone(),
                             package_type: locked.package_type.clone(),
-                            dependencies: locked.dependencies.clone(),
+                            dependencies: deps.clone(),
                             peer_dependencies: locked.peer_dependencies.clone(),
                         };
-                        // Push transitive deps from locked entry as exact versions
-                        for (dep_name, dep_version) in &locked.dependencies {
-                            queue.push_back((dep_name.clone(), format!("={dep_version}")));
+                        for (dep_name, dep_version) in &deps {
+                            queue.push_back((dep_name.clone(), dep_version.clone()));
                         }
                         resolved.insert(name, pkg);
                         continue;
@@ -102,12 +119,25 @@ pub async fn resolve(
             ))
         })?;
 
-        let deps = version_meta.dependencies.clone().unwrap_or_default();
+        // Use registry deps if available; otherwise download the package
+        // and read its manifest to discover dependencies.
+        let mut deps = version_meta.dependencies.clone().unwrap_or_default();
+        let computed_integrity;
+
+        if deps.is_empty() {
+            // Download and extract to discover dependencies from apkg.json
+            let install_dir = install_root.join("apkg_packages").join(&name);
+            computed_integrity =
+                download_and_extract(client, &name, &version_meta.version, &dist.integrity, &install_dir, pb).await?;
+            deps = read_installed_deps(install_root, &name);
+        } else {
+            computed_integrity = dist.integrity.clone();
+        }
 
         let pkg = ResolvedPackage {
             version: version_meta.version.clone(),
             tarball_url: dist.tarball.clone(),
-            integrity: dist.integrity.clone(),
+            integrity: computed_integrity,
             package_type: version_meta
                 .package_type
                 .clone()
@@ -125,6 +155,75 @@ pub async fn resolve(
     }
 
     Ok(ResolutionResult { packages: resolved })
+}
+
+/// Read dependencies from an already-installed package's apkg.json.
+/// Uses lenient parsing (only extracts the `dependencies` field) so that
+/// packages missing other required fields (e.g. `platform`) still work.
+fn read_installed_deps(install_root: &Path, name: &str) -> BTreeMap<String, String> {
+    let manifest_path = install_root
+        .join("apkg_packages")
+        .join(name)
+        .join(manifest::MANIFEST_FILE);
+    let content = match std::fs::read_to_string(&manifest_path) {
+        Ok(c) => c,
+        Err(_) => return BTreeMap::new(),
+    };
+    let parsed: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return BTreeMap::new(),
+    };
+    parsed
+        .get("dependencies")
+        .and_then(|v| serde_json::from_value::<BTreeMap<String, String>>(v.clone()).ok())
+        .unwrap_or_default()
+}
+
+/// Download a package tarball, verify integrity, cache it, and extract.
+/// Returns the computed integrity hash.
+async fn download_and_extract(
+    client: &ApiClient,
+    name: &str,
+    version: &str,
+    expected_integrity: &str,
+    install_dir: &Path,
+    pb: &ProgressBar,
+) -> Result<String, AppError> {
+    // Try cache first
+    if let Ok(Some(entry)) = cache::load(name, version) {
+        if entry.integrity == expected_integrity {
+            pb.set_message(format!("Extracting {name}@{version} (cached)..."));
+            if install_dir.exists() {
+                std::fs::remove_dir_all(install_dir)?;
+            }
+            tarball::extract_tarball(&entry.data, install_dir)?;
+            return Ok(entry.integrity);
+        }
+    }
+
+    // Download
+    pb.set_message(format!("Downloading {name}@{version}..."));
+    let (data, _server_integrity) = client.download_tarball(name, version).await?;
+
+    let computed = integrity::sha256_integrity(&data);
+    if computed != expected_integrity {
+        return Err(AppError::IntegrityMismatch {
+            expected: expected_integrity.to_string(),
+            actual: computed,
+        });
+    }
+
+    // Cache (best-effort)
+    let _ = cache::store(name, version, &data, &computed);
+
+    // Extract
+    pb.set_message(format!("Extracting {name}@{version}..."));
+    if install_dir.exists() {
+        std::fs::remove_dir_all(install_dir)?;
+    }
+    tarball::extract_tarball(&data, install_dir)?;
+
+    Ok(computed)
 }
 
 /// Find the highest non-yanked version that satisfies the requirement.

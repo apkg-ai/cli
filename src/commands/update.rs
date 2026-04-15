@@ -170,7 +170,7 @@ pub async fn run(opts: UpdateOptions<'_>) -> Result<(), AppError> {
 
     // Always run setup for all resolved packages to ensure tool configs are in sync
     if let Some(ref target) = opts.setup_target {
-        for (name, _pkg) in &result.packages {
+        for name in result.packages.keys() {
             let install_dir = cwd
                 .join("apkg_packages")
                 .join(install::safe_dir_name(name));

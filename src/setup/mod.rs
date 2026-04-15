@@ -109,7 +109,7 @@ impl Tool {
     }
 
     /// Return the canonical config key for this tool.
-    pub fn to_key(&self) -> &'static str {
+    pub fn to_key(self) -> &'static str {
         match self {
             Tool::Cursor => "cursor",
             Tool::ClaudeCode => "claude-code",

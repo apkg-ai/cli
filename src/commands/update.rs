@@ -76,7 +76,7 @@ pub async fn run(opts: UpdateOptions<'_>) -> Result<(), AppError> {
     pb.set_message("Resolving dependencies...");
 
     let result =
-        resolver::resolve(&client, &resolution_deps, filtered_lockfile.as_ref(), &pb).await?;
+        resolver::resolve(&client, &resolution_deps, filtered_lockfile.as_ref(), &pb, &cwd).await?;
 
     pb.finish_and_clear();
 

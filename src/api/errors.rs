@@ -121,4 +121,65 @@ mod tests {
             _ => panic!("expected Api error"),
         }
     }
+
+    #[test]
+    fn test_format_api_error_401_with_details() {
+        let body = r#"{"error":{"code":"UNAUTHORIZED","message":"Auth failed","details":[{"field":"token","message":"expired"}]}}"#;
+        let err = format_api_error(401, body);
+        match err {
+            AppError::AuthFailed(msg) => {
+                assert!(msg.contains("Auth failed"));
+                assert!(msg.contains("token: expired"));
+            }
+            _ => panic!("expected AuthFailed"),
+        }
+    }
+
+    #[test]
+    fn test_format_api_error_non_401_code() {
+        let body = r#"{"error":{"code":"FORBIDDEN","message":"Access denied","details":[]}}"#;
+        let err = format_api_error(403, body);
+        match err {
+            AppError::Api {
+                code,
+                message,
+                status,
+            } => {
+                assert_eq!(code, "FORBIDDEN");
+                assert_eq!(status, 403);
+                assert!(message.contains("Access denied"));
+            }
+            _ => panic!("expected Api error"),
+        }
+    }
+
+    #[test]
+    fn test_format_api_error_with_request_id() {
+        let body = r#"{"error":{"code":"INTERNAL","message":"Something broke","requestId":"req-abc-123","details":[]}}"#;
+        let err = format_api_error(500, body);
+        match err {
+            AppError::Api { code, message, .. } => {
+                assert_eq!(code, "INTERNAL");
+                assert!(message.contains("Something broke"));
+            }
+            _ => panic!("expected Api error"),
+        }
+    }
+
+    #[test]
+    fn test_format_api_error_detail_without_field() {
+        let body = r#"{"error":{"code":"VALIDATION","message":"Bad input","details":[{"message":"must be non-empty"}]}}"#;
+        let err = format_api_error(400, body);
+        let msg = err.to_string();
+        assert!(msg.contains("Bad input"));
+        assert!(msg.contains("  - must be non-empty"));
+    }
+
+    #[test]
+    fn test_format_api_error_detail_with_code() {
+        let body = r#"{"error":{"code":"VALIDATION","message":"Invalid","details":[{"field":"version","message":"bad semver","code":"INVALID_FORMAT"}]}}"#;
+        let err = format_api_error(400, body);
+        let msg = err.to_string();
+        assert!(msg.contains("version: bad semver"));
+    }
 }

@@ -26,6 +26,10 @@ pub struct PackageInfo {
     pub description: String,
     #[serde(default)]
     pub main: Option<String>,
+    // Deserialized but not currently used in setup logic — kept for forward compatibility.
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub platform: Vec<String>,
     #[serde(default)]
     pub skill: Option<SkillInfo>,
     #[serde(default)]
@@ -101,6 +105,18 @@ impl Tool {
             // "windsurf" => Some(Tool::Windsurf),
             // "kiro" => Some(Tool::Kiro),
             _ => None,
+        }
+    }
+
+    /// Return the canonical config key for this tool.
+    pub fn to_key(&self) -> &'static str {
+        match self {
+            Tool::Cursor => "cursor",
+            Tool::ClaudeCode => "claude-code",
+            Tool::Codex => "codex",
+            // TODO: re-enable when ready
+            // Tool::Windsurf => "windsurf",
+            // Tool::Kiro => "kiro",
         }
     }
 }
@@ -700,23 +716,25 @@ mod tests {
 
     #[test]
     fn test_run_setup_warns_on_bad_manifest() {
-        let tmp = TempDir::new().unwrap();
-        fs::create_dir(tmp.path().join(".claude")).unwrap();
+        with_temp_home(|| {
+            let tmp = TempDir::new().unwrap();
+            fs::create_dir(tmp.path().join(".claude")).unwrap();
 
-        let install_dir = tmp.path().join("apkg_packages/broken");
-        fs::create_dir_all(&install_dir).unwrap();
-        fs::write(install_dir.join("apkg.json"), "{ invalid json }").unwrap();
+            let install_dir = tmp.path().join("apkg_packages/broken");
+            fs::create_dir_all(&install_dir).unwrap();
+            fs::write(install_dir.join("apkg.json"), "{ invalid json }").unwrap();
 
-        let report = run_setup(&SetupContext {
-            project_root: tmp.path().to_path_buf(),
-            install_dir,
-            target: SetupTarget::All,
+            let report = run_setup(&SetupContext {
+                project_root: tmp.path().to_path_buf(),
+                install_dir,
+                target: SetupTarget::All,
+            });
+
+            assert_eq!(report.tools.len(), 1);
+            assert!(report.created.is_empty());
+            assert_eq!(report.warnings.len(), 1);
+            assert!(report.warnings[0].contains("Tool setup skipped"));
         });
-
-        assert_eq!(report.tools.len(), 1);
-        assert!(report.created.is_empty());
-        assert_eq!(report.warnings.len(), 1);
-        assert!(report.warnings[0].contains("Tool setup skipped"));
     }
 
     #[test]
@@ -913,6 +931,20 @@ mod tests {
             tools,
             vec![Tool::Cursor, Tool::ClaudeCode, Tool::Codex]
         );
+    }
+
+    #[test]
+    fn test_tool_to_key() {
+        assert_eq!(Tool::Cursor.to_key(), "cursor");
+        assert_eq!(Tool::ClaudeCode.to_key(), "claude-code");
+        assert_eq!(Tool::Codex.to_key(), "codex");
+    }
+
+    #[test]
+    fn test_tool_to_key_roundtrip() {
+        for tool in &[Tool::Cursor, Tool::ClaudeCode, Tool::Codex] {
+            assert_eq!(Tool::from_key(tool.to_key()), Some(*tool));
+        }
     }
 
     #[test]

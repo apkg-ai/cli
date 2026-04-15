@@ -101,6 +101,7 @@ pub struct Manifest {
     pub repository: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
+    pub platform: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependencies: Option<BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -126,6 +127,18 @@ pub struct HookPermissions {
 }
 
 pub const MANIFEST_FILE: &str = "apkg.json";
+
+/// Known platform identifiers for AI coding tools.
+pub const KNOWN_PLATFORMS: &[&str] = &["claude-code", "cursor", "codex"];
+
+/// Returns warning strings for any platform values not in the known set.
+pub fn validate_platforms(values: &[String]) -> Vec<String> {
+    values
+        .iter()
+        .filter(|v| !KNOWN_PLATFORMS.contains(&v.as_str()))
+        .map(|v| format!("Unknown platform \"{v}\". Known platforms: {}", KNOWN_PLATFORMS.join(", ")))
+        .collect()
+}
 
 pub fn load(dir: &Path) -> Result<Manifest, AppError> {
     let path = dir.join(MANIFEST_FILE);
@@ -157,7 +170,8 @@ mod tests {
             "version": "1.0.0",
             "type": "skill",
             "description": "A skill",
-            "license": "MIT"
+            "license": "MIT",
+            "platform": ["claude-code"]
         }"#;
         let m: Manifest = serde_json::from_str(json).unwrap();
         assert_eq!(m.name, "my-skill");
@@ -165,6 +179,7 @@ mod tests {
         assert!(matches!(m.package_type, PackageType::Skill));
         assert_eq!(m.description, "A skill");
         assert_eq!(m.license, "MIT");
+        assert_eq!(m.platform, vec!["claude-code"]);
         assert!(m.keywords.is_none());
         assert!(m.dependencies.is_none());
     }
@@ -182,6 +197,7 @@ mod tests {
             "authors": [{"name": "acme"}],
             "repository": "https://github.com/acme/summarizer",
             "homepage": "https://acme.dev",
+            "platform": ["claude-code", "cursor"],
             "dependencies": {
                 "some-dep": "^1.0.0"
             }
@@ -189,6 +205,7 @@ mod tests {
         let m: Manifest = serde_json::from_str(json).unwrap();
         assert_eq!(m.name, "@acme/summarizer");
         assert!(matches!(m.package_type, PackageType::Command));
+        assert_eq!(m.platform, vec!["claude-code", "cursor"]);
         assert_eq!(m.keywords.unwrap(), vec!["ai", "command"]);
         assert_eq!(m.dependencies.unwrap().len(), 1);
     }
@@ -201,6 +218,7 @@ mod tests {
             "type": "skill",
             "description": "A skill",
             "license": "MIT",
+            "platform": ["claude-code"],
             "unknownField": true
         }"#;
         let result: Result<Manifest, _> = serde_json::from_str(json);
@@ -211,7 +229,7 @@ mod tests {
     fn test_all_package_types() {
         for type_str in PackageType::VARIANTS {
             let json = format!(
-                r#"{{"name":"t","version":"0.1.0","type":"{type_str}","description":"d","license":"MIT"}}"#
+                r#"{{"name":"t","version":"0.1.0","type":"{type_str}","description":"d","license":"MIT","platform":["claude-code"]}}"#
             );
             let m: Manifest = serde_json::from_str(&json).unwrap();
             assert_eq!(m.package_type.to_string(), *type_str);
@@ -232,6 +250,7 @@ mod tests {
             authors: None,
             repository: None,
             homepage: None,
+            platform: vec!["claude-code".to_string()],
             dependencies: None,
             dev_dependencies: None,
             peer_dependencies: None,
@@ -250,5 +269,87 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let result = load(tmp.path());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_manifest_with_platform() {
+        let json = r#"{
+            "name": "@user/my-skill",
+            "version": "1.0.0",
+            "type": "skill",
+            "description": "A skill",
+            "license": "MIT",
+            "platform": ["claude-code"]
+        }"#;
+        let m: Manifest = serde_json::from_str(json).unwrap();
+        assert_eq!(m.platform, vec!["claude-code"]);
+    }
+
+    #[test]
+    fn test_parse_manifest_with_multiple_platforms() {
+        let json = r#"{
+            "name": "@user/my-skill",
+            "version": "1.0.0",
+            "type": "skill",
+            "description": "A skill",
+            "license": "MIT",
+            "platform": ["claude-code", "cursor", "codex"]
+        }"#;
+        let m: Manifest = serde_json::from_str(json).unwrap();
+        assert_eq!(m.platform, vec!["claude-code", "cursor", "codex"]);
+    }
+
+    #[test]
+    fn test_reject_missing_platform() {
+        let json = r#"{
+            "name": "@user/my-skill",
+            "version": "1.0.0",
+            "type": "skill",
+            "description": "A skill",
+            "license": "MIT"
+        }"#;
+        let result: Result<Manifest, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_platforms_known() {
+        let values = vec!["claude-code".to_string(), "cursor".to_string()];
+        let warnings = validate_platforms(&values);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_validate_platforms_unknown() {
+        let values = vec!["claude-code".to_string(), "some-future-tool".to_string()];
+        let warnings = validate_platforms(&values);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("some-future-tool"));
+    }
+
+    #[test]
+    fn test_roundtrip_with_platform() {
+        let tmp = tempfile::tempdir().unwrap();
+        let m = Manifest {
+            name: "test-pkg".to_string(),
+            version: "0.1.0".to_string(),
+            package_type: PackageType::Skill,
+            description: "test".to_string(),
+            license: "MIT".to_string(),
+            readme: None,
+            keywords: None,
+            authors: None,
+            repository: None,
+            homepage: None,
+            platform: vec!["claude-code".to_string(), "codex".to_string()],
+            dependencies: None,
+            dev_dependencies: None,
+            peer_dependencies: None,
+            scripts: None,
+            hook_permissions: None,
+        };
+        save(tmp.path(), &m).unwrap();
+        let loaded = load(tmp.path()).unwrap();
+        assert_eq!(loaded.platform, vec!["claude-code", "codex"]);
     }
 }

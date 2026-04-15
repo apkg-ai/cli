@@ -213,6 +213,7 @@ mod tests {
             dependencies: None,
             license: None,
             keywords: None,
+            platform: None,
             deprecated: None,
         }
     }

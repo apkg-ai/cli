@@ -1,11 +1,14 @@
 use std::env;
 use std::path::Path;
 
-use dialoguer::{Confirm, Input, Select};
+use dialoguer::{Confirm, Input, MultiSelect, Select};
 
 use crate::config::credentials;
-use crate::config::manifest::{self, Author, Manifest, PackageType, MANIFEST_FILE};
+use crate::config::manifest::{
+    self, validate_platforms, Author, Manifest, PackageType, KNOWN_PLATFORMS, MANIFEST_FILE,
+};
 use crate::error::AppError;
+use crate::setup;
 use crate::util::display;
 use crate::util::git;
 
@@ -95,6 +98,27 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
         )
     };
 
+    // Auto-detect platforms from project directory
+    let detected_tools = setup::detect_tools(&cwd);
+    let defaults: Vec<bool> = KNOWN_PLATFORMS
+        .iter()
+        .map(|p| detected_tools.iter().any(|t| t.to_key() == *p))
+        .collect();
+    let platform_idxs = MultiSelect::new()
+        .with_prompt("Target platforms (space to toggle, enter to confirm)")
+        .items(KNOWN_PLATFORMS)
+        .defaults(&defaults)
+        .interact()
+        .map_err(|e| AppError::Other(format!("Input error: {e}")))?;
+    let platform: Vec<String> = platform_idxs
+        .iter()
+        .map(|&i| KNOWN_PLATFORMS[i].to_string())
+        .collect();
+
+    for warning in validate_platforms(&platform) {
+        display::warn(&warning);
+    }
+
     let readme = if Path::new("README.md").exists() {
         Some("README.md".to_string())
     } else {
@@ -127,6 +151,7 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
         authors,
         repository,
         homepage: None,
+        platform,
         dependencies: None,
         dev_dependencies: None,
         peer_dependencies: None,

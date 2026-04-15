@@ -224,6 +224,7 @@ mod tests {
             package_type: PackageType::Skill,
             description: "AI-powered code review".to_string(),
             main: Some("src/index.ts".to_string()),
+            platform: Vec::new(),
             skill: Some(SkillInfo {
                 capabilities: vec!["code-review".to_string(), "bug-detection".to_string()],
                 model_compatibility: None,
@@ -240,6 +241,7 @@ mod tests {
             package_type: PackageType::Agent,
             description: "Autonomous research agent".to_string(),
             main: Some("src/agent.ts".to_string()),
+            platform: Vec::new(),
             skill: None,
             agent: Some(AgentInfo {
                 tools: vec![
@@ -497,6 +499,7 @@ mod tests {
             package_type: PackageType::Command,
             description: "Generate a changelog from git history".to_string(),
             main: None,
+            platform: Vec::new(),
             skill: None,
             agent: None,
         }

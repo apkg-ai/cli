@@ -33,6 +33,7 @@ pub async fn run(opts: SearchOptions<'_>) -> Result<(), AppError> {
                     "version": r.version,
                     "description": r.description,
                     "type": r.package_type,
+                    "platform": r.platform,
                 })).collect::<Vec<_>>(),
                 "total": resp.total,
             }))?
@@ -63,12 +64,19 @@ pub async fn run(opts: SearchOptions<'_>) -> Result<(), AppError> {
             .as_deref()
             .map(|t| format!(" [{t}]"))
             .unwrap_or_default();
+        let platform_str = result
+            .platform
+            .as_ref()
+            .filter(|p| !p.is_empty())
+            .map(|p| format!(" ({})", p.join(", ")))
+            .unwrap_or_default();
 
         println!(
-            "  {} {} {}{}",
+            "  {} {} {}{}{}",
             name_style.apply_to(&result.name),
             version_style.apply_to(version_str),
             dim_style.apply_to(type_str),
+            dim_style.apply_to(&platform_str),
             if desc.is_empty() {
                 String::new()
             } else {

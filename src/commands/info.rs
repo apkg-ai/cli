@@ -15,6 +15,13 @@ pub async fn run(opts: InfoOptions<'_>) -> Result<(), AppError> {
     let client = ApiClient::new(opts.registry)?;
     let metadata = client.get_package(opts.package).await?;
 
+    // Resolve the latest version's platform info for display
+    let latest_platform = metadata
+        .dist_tags
+        .get("latest")
+        .and_then(|v| metadata.versions.get(v))
+        .and_then(|vm| vm.platform.clone());
+
     if opts.json {
         let json_val = serde_json::to_string_pretty(&serde_json::json!({
             "name": metadata.name,
@@ -22,6 +29,7 @@ pub async fn run(opts: InfoOptions<'_>) -> Result<(), AppError> {
             "distTags": metadata.dist_tags,
             "versions": metadata.versions.keys().collect::<Vec<_>>(),
             "maintainers": metadata.maintainers.iter().map(|m| &m.username).collect::<Vec<_>>(),
+            "platform": latest_platform,
             "createdAt": metadata.created_at,
             "updatedAt": metadata.updated_at,
         }))?;
@@ -60,6 +68,15 @@ pub async fn run(opts: InfoOptions<'_>) -> Result<(), AppError> {
             println!("  {}: {}", tag, version_style.apply_to(version));
         }
         println!();
+    }
+
+    // Platform
+    if let Some(ref platforms) = latest_platform {
+        if !platforms.is_empty() {
+            println!("{}", header_style.apply_to("Platform:"));
+            println!("  {}", platforms.join(", "));
+            println!();
+        }
     }
 
     // Versions

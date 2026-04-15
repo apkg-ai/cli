@@ -20,9 +20,17 @@ pub struct Settings {
     #[serde(default)]
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub default_setup: BTreeMap<String, bool>,
+
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symlink_claude_md: Option<bool>,
 }
 
 impl Settings {
+    pub fn symlink_claude_md_enabled(&self) -> bool {
+        self.symlink_claude_md.unwrap_or(true)
+    }
+
     pub fn service_url(&self, service: &str) -> Option<&str> {
         self.services.get(service).map(String::as_str)
     }
@@ -43,6 +51,8 @@ impl Settings {
         } else if let Some(tool) = key.strip_prefix("defaultSetup.") {
             let enabled = value == "true" || value == "1";
             self.default_setup.insert(tool.to_string(), enabled);
+        } else if key == "symlinkClaudeMd" {
+            self.symlink_claude_md = Some(value == "true" || value == "1");
         }
     }
 
@@ -53,6 +63,8 @@ impl Settings {
             self.services.get(svc).map(String::as_str)
         } else if let Some(tool) = key.strip_prefix("defaultSetup.") {
             self.default_setup.get(tool).map(|v| if *v { "true" } else { "false" })
+        } else if key == "symlinkClaudeMd" {
+            self.symlink_claude_md.map(|v| if v { "true" } else { "false" })
         } else {
             None
         }
@@ -67,6 +79,10 @@ impl Settings {
             self.services.remove(svc).is_some()
         } else if let Some(tool) = key.strip_prefix("defaultSetup.") {
             self.default_setup.remove(tool).is_some()
+        } else if key == "symlinkClaudeMd" {
+            let had = self.symlink_claude_md.is_some();
+            self.symlink_claude_md = None;
+            had
         } else {
             false
         }
@@ -82,6 +98,9 @@ impl Settings {
         }
         for (k, v) in &self.default_setup {
             entries.push((format!("defaultSetup.{k}"), v.to_string()));
+        }
+        if let Some(v) = self.symlink_claude_md {
+            entries.push(("symlinkClaudeMd".to_string(), v.to_string()));
         }
         entries
     }
@@ -248,6 +267,47 @@ mod tests {
         s.set("defaultSetup.claude-code", "false");
         let tools = s.enabled_setup_tools().unwrap();
         assert_eq!(tools, vec!["cursor"]);
+    }
+
+    #[test]
+    fn test_symlink_claude_md_default_enabled() {
+        let s = Settings::default();
+        assert!(s.symlink_claude_md_enabled());
+        assert_eq!(s.symlink_claude_md, None);
+    }
+
+    #[test]
+    fn test_symlink_claude_md_set_get_delete() {
+        let mut s = Settings::default();
+        s.set("symlinkClaudeMd", "false");
+        assert_eq!(s.get("symlinkClaudeMd"), Some("false"));
+        assert!(!s.symlink_claude_md_enabled());
+
+        s.set("symlinkClaudeMd", "true");
+        assert_eq!(s.get("symlinkClaudeMd"), Some("true"));
+        assert!(s.symlink_claude_md_enabled());
+
+        assert!(s.delete("symlinkClaudeMd"));
+        assert_eq!(s.get("symlinkClaudeMd"), None);
+        assert!(s.symlink_claude_md_enabled()); // back to default
+        assert!(!s.delete("symlinkClaudeMd")); // already gone
+    }
+
+    #[test]
+    fn test_symlink_claude_md_roundtrip_json() {
+        let mut s = Settings::default();
+        s.set("symlinkClaudeMd", "false");
+        let json = serde_json::to_string_pretty(&s).unwrap();
+        let loaded: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.symlink_claude_md, Some(false));
+    }
+
+    #[test]
+    fn test_symlink_claude_md_entries() {
+        let mut s = Settings::default();
+        assert!(s.entries().iter().all(|(k, _)| k != "symlinkClaudeMd"));
+        s.set("symlinkClaudeMd", "true");
+        assert!(s.entries().iter().any(|(k, v)| k == "symlinkClaudeMd" && v == "true"));
     }
 
     #[test]

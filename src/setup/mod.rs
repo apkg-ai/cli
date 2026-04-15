@@ -401,10 +401,97 @@ pub fn run_setup(ctx: &SetupContext) -> SetupReport {
         }
     }
 
+    // After all tool-specific setups, attempt to create CLAUDE.md -> AGENTS.md symlink.
+    if let Some(action) = maybe_create_claude_md_symlink(&ctx.project_root, &tools) {
+        created.push(action);
+    }
+
     SetupReport {
         tools,
         created,
         warnings,
+    }
+}
+
+/// If conditions are met, create a `CLAUDE.md` symlink pointing to `AGENTS.md`.
+///
+/// Conditions:
+/// 1. The `symlinkClaudeMd` user setting is enabled (default: true)
+/// 2. Claude Code is among the active tools
+/// 3. `AGENTS.md` exists in `project_root`
+/// 4. `CLAUDE.md` does not exist in `project_root` (neither as file nor symlink)
+pub fn maybe_create_claude_md_symlink(
+    project_root: &Path,
+    tools: &[Tool],
+) -> Option<SetupAction> {
+    let enabled = Settings::load()
+        .map(|s| s.symlink_claude_md_enabled())
+        .unwrap_or(true);
+    if !enabled {
+        return None;
+    }
+
+    if !tools.contains(&Tool::ClaudeCode) {
+        return None;
+    }
+
+    let agents_md = project_root.join("AGENTS.md");
+    let claude_md = project_root.join("CLAUDE.md");
+
+    if !agents_md.exists() {
+        return None;
+    }
+
+    // Use symlink_metadata to detect any entry at that path (including dangling symlinks).
+    if claude_md.symlink_metadata().is_ok() {
+        return None;
+    }
+
+    #[cfg(unix)]
+    {
+        if std::os::unix::fs::symlink("AGENTS.md", &claude_md).is_ok() {
+            return Some(SetupAction {
+                tool: Tool::ClaudeCode,
+                path: claude_md,
+            });
+        }
+    }
+    #[cfg(windows)]
+    {
+        if std::os::windows::fs::symlink_file("AGENTS.md", &claude_md).is_ok() {
+            return Some(SetupAction {
+                tool: Tool::ClaudeCode,
+                path: claude_md,
+            });
+        }
+    }
+
+    None
+}
+
+/// If `CLAUDE.md` is a symlink pointing to `AGENTS.md` and `AGENTS.md` no
+/// longer exists, remove the dangling symlink.
+pub fn maybe_cleanup_claude_md_symlink(project_root: &Path) {
+    let claude_md = project_root.join("CLAUDE.md");
+
+    let Ok(metadata) = claude_md.symlink_metadata() else {
+        return;
+    };
+    if !metadata.file_type().is_symlink() {
+        return;
+    }
+
+    let Ok(target) = fs::read_link(&claude_md) else {
+        return;
+    };
+
+    // Only clean up if it points to AGENTS.md
+    if target != Path::new("AGENTS.md") && target != project_root.join("AGENTS.md") {
+        return;
+    }
+
+    if !project_root.join("AGENTS.md").exists() {
+        let _ = fs::remove_file(&claude_md);
     }
 }
 
@@ -1034,5 +1121,129 @@ mod tests {
         let files = find_definition_files(tmp.path(), false);
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].file_name().unwrap(), "cmd.md");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_maybe_create_claude_md_symlink_creates() {
+        with_temp_home(|| {
+            let tmp = TempDir::new().unwrap();
+            fs::create_dir(tmp.path().join(".claude")).unwrap();
+            fs::write(tmp.path().join("AGENTS.md"), "# Rules\n").unwrap();
+
+            let tools = vec![Tool::ClaudeCode];
+            let result = maybe_create_claude_md_symlink(tmp.path(), &tools);
+            assert!(result.is_some());
+
+            let claude_md = tmp.path().join("CLAUDE.md");
+            assert!(claude_md.symlink_metadata().unwrap().file_type().is_symlink());
+            assert_eq!(fs::read_link(&claude_md).unwrap(), Path::new("AGENTS.md"));
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_maybe_create_claude_md_symlink_skips_no_claude_tool() {
+        with_temp_home(|| {
+            let tmp = TempDir::new().unwrap();
+            fs::write(tmp.path().join("AGENTS.md"), "# Rules\n").unwrap();
+
+            let tools = vec![Tool::Cursor];
+            let result = maybe_create_claude_md_symlink(tmp.path(), &tools);
+            assert!(result.is_none());
+            assert!(!tmp.path().join("CLAUDE.md").exists());
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_maybe_create_claude_md_symlink_skips_no_agents_md() {
+        with_temp_home(|| {
+            let tmp = TempDir::new().unwrap();
+            fs::create_dir(tmp.path().join(".claude")).unwrap();
+
+            let tools = vec![Tool::ClaudeCode];
+            let result = maybe_create_claude_md_symlink(tmp.path(), &tools);
+            assert!(result.is_none());
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_maybe_create_claude_md_symlink_skips_existing_file() {
+        with_temp_home(|| {
+            let tmp = TempDir::new().unwrap();
+            fs::create_dir(tmp.path().join(".claude")).unwrap();
+            fs::write(tmp.path().join("AGENTS.md"), "# Rules\n").unwrap();
+            fs::write(tmp.path().join("CLAUDE.md"), "existing content").unwrap();
+
+            let tools = vec![Tool::ClaudeCode];
+            let result = maybe_create_claude_md_symlink(tmp.path(), &tools);
+            assert!(result.is_none());
+            // Original file untouched
+            assert_eq!(fs::read_to_string(tmp.path().join("CLAUDE.md")).unwrap(), "existing content");
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_maybe_create_claude_md_symlink_skips_existing_symlink() {
+        with_temp_home(|| {
+            let tmp = TempDir::new().unwrap();
+            fs::create_dir(tmp.path().join(".claude")).unwrap();
+            fs::write(tmp.path().join("AGENTS.md"), "# Rules\n").unwrap();
+            std::os::unix::fs::symlink("AGENTS.md", tmp.path().join("CLAUDE.md")).unwrap();
+
+            let tools = vec![Tool::ClaudeCode];
+            let result = maybe_create_claude_md_symlink(tmp.path(), &tools);
+            assert!(result.is_none());
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_maybe_cleanup_removes_dangling() {
+        let tmp = TempDir::new().unwrap();
+        // Create symlink to AGENTS.md, but don't create AGENTS.md
+        std::os::unix::fs::symlink("AGENTS.md", tmp.path().join("CLAUDE.md")).unwrap();
+
+        maybe_cleanup_claude_md_symlink(tmp.path());
+        assert!(tmp.path().join("CLAUDE.md").symlink_metadata().is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_maybe_cleanup_keeps_valid() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("AGENTS.md"), "# Rules\n").unwrap();
+        std::os::unix::fs::symlink("AGENTS.md", tmp.path().join("CLAUDE.md")).unwrap();
+
+        maybe_cleanup_claude_md_symlink(tmp.path());
+        // Symlink should still exist
+        assert!(tmp.path().join("CLAUDE.md").symlink_metadata().unwrap().file_type().is_symlink());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_maybe_cleanup_ignores_regular_file() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("CLAUDE.md"), "regular file").unwrap();
+
+        maybe_cleanup_claude_md_symlink(tmp.path());
+        // Regular file should still exist
+        assert!(tmp.path().join("CLAUDE.md").exists());
+        assert_eq!(fs::read_to_string(tmp.path().join("CLAUDE.md")).unwrap(), "regular file");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_maybe_cleanup_ignores_other_target() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("OTHER.md"), "other").unwrap();
+        std::os::unix::fs::symlink("OTHER.md", tmp.path().join("CLAUDE.md")).unwrap();
+
+        maybe_cleanup_claude_md_symlink(tmp.path());
+        // Symlink to a different target should be untouched
+        assert!(tmp.path().join("CLAUDE.md").symlink_metadata().unwrap().file_type().is_symlink());
     }
 }

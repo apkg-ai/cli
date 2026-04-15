@@ -55,7 +55,7 @@ pub fn run(action: ConfigAction<'_>) -> Result<(), AppError> {
 const KNOWN_SETUP_TOOLS: &[&str] = &["cursor", "claude-code", "windsurf", "kiro", "codex"];
 
 fn validate_key(key: &str) -> Result<(), AppError> {
-    if key == "registry" || key.starts_with("services.") {
+    if key == "registry" || key == "symlinkClaudeMd" || key.starts_with("services.") {
         Ok(())
     } else if let Some(tool) = key.strip_prefix("defaultSetup.") {
         if KNOWN_SETUP_TOOLS.contains(&tool) {
@@ -68,7 +68,7 @@ fn validate_key(key: &str) -> Result<(), AppError> {
         }
     } else {
         Err(AppError::Other(format!(
-            "Unknown config key: {key}\nValid keys: registry, services.<name>, defaultSetup.<tool> ({})",
+            "Unknown config key: {key}\nValid keys: registry, symlinkClaudeMd, services.<name>, defaultSetup.<tool> ({})",
             KNOWN_SETUP_TOOLS.join(", ")
         )))
     }
@@ -87,6 +87,11 @@ mod tests {
     fn test_validate_key_services() {
         assert!(validate_key("services.auth").is_ok());
         assert!(validate_key("services.packages").is_ok());
+    }
+
+    #[test]
+    fn test_validate_key_symlink_claude_md() {
+        assert!(validate_key("symlinkClaudeMd").is_ok());
     }
 
     #[test]

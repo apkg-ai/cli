@@ -86,7 +86,7 @@ async fn install_all(opts: &InstallOptions<'_>) -> Result<(), AppError> {
 
     // Run setup for all installed packages
     if let Some(ref target) = opts.setup_target {
-        for (name, _pkg) in &result.packages {
+        for name in result.packages.keys() {
             let install_dir = cwd.join("apkg_packages").join(safe_dir_name(name));
             let report = setup::run_setup(&setup::SetupContext {
                 project_root: cwd.clone(),
@@ -190,7 +190,7 @@ async fn install_single(opts: &InstallOptions<'_>, pkg: &str) -> Result<(), AppE
 
     // Run setup for ALL resolved packages
     if let Some(ref target) = opts.setup_target {
-        for (pkg_name, _pkg) in &result.packages {
+        for pkg_name in result.packages.keys() {
             let install_dir = cwd.join("apkg_packages").join(safe_dir_name(pkg_name));
             let report = setup::run_setup(&setup::SetupContext {
                 project_root: cwd.clone(),

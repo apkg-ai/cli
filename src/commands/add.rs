@@ -109,7 +109,7 @@ pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
 
     // Run setup for ALL resolved packages
     if let Some(target) = opts.setup_target {
-        for (pkg_name, _pkg) in &result.packages {
+        for pkg_name in result.packages.keys() {
             let pkg_install_dir =
                 cwd.join("apkg_packages").join(install::safe_dir_name(pkg_name));
             let report = setup::run_setup(&setup::SetupContext {

@@ -91,17 +91,24 @@ fn cleanup_claude_setup(project_root: &Path, package_name: &str) {
     }
 }
 
-/// Remove Codex setup files (`.codex/agents/@scope/name/` or `.codex/agents/name/`)
-/// that belong to the given package.
+/// Remove Codex setup files (`.codex/{type}/@scope/name/` or `.codex/{type}/name/`)
+/// that belong to the given package, and rebuild the AGENTS.md managed rules section.
 fn cleanup_codex_setup(project_root: &Path, package_name: &str) {
     let pkg_path = crate::setup::config_pkg_path(package_name);
-    let dir = project_root.join(".codex").join("agents");
 
-    let pkg_dir = dir.join(&pkg_path);
-    if pkg_dir.is_dir() {
-        let _ = std::fs::remove_dir_all(&pkg_dir);
+    for subdir in &["agents", "skills", "rules"] {
+        let dir = project_root.join(".codex").join(subdir);
+
+        let pkg_dir = dir.join(&pkg_path);
+        if pkg_dir.is_dir() {
+            let _ = std::fs::remove_dir_all(&pkg_dir);
+        }
+        cleanup_empty_scope_dir(&pkg_dir, &dir);
     }
-    cleanup_empty_scope_dir(&pkg_dir, &dir);
+
+    // Rebuild the managed rules section in AGENTS.md after removing rule files.
+    let rules = crate::setup::codex::collect_codex_rules(project_root);
+    let _ = crate::setup::codex::update_agents_md_rules(project_root, &rules);
 }
 
 /// Remove Cursor setup files (`.cursor/{type}/@scope/name/` or `.cursor/{type}/name/`)
@@ -279,6 +286,75 @@ mod tests {
 
         assert!(!pkg_dir.exists());
         assert!(!agents_dir.join("@acme").exists());
+    }
+
+    #[test]
+    fn test_cleanup_codex_setup_removes_rule_and_updates_agents_md() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        // Set up a rule in .codex/rules/
+        let rules_dir = tmp.path().join(".codex").join("rules");
+        let pkg_dir = rules_dir.join("@acme").join("no-todo");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("no-todo.md"),
+            "---\nname: no-todo\ndescription: Disallow TODO\n---\nContent.\n",
+        )
+        .unwrap();
+
+        // Set up AGENTS.md with the rule referenced
+        std::fs::write(
+            tmp.path().join("AGENTS.md"),
+            "# Agents\n\n<!-- apkg:rules -->\n## Rules\n\n- [Disallow TODO](.codex/rules/@acme/no-todo/no-todo.md)\n<!-- /apkg:rules -->\n",
+        )
+        .unwrap();
+
+        cleanup_codex_setup(tmp.path(), "@acme/no-todo");
+
+        // Rule dir should be removed
+        assert!(!pkg_dir.exists());
+
+        // AGENTS.md should have section removed (no remaining rules)
+        let content = std::fs::read_to_string(tmp.path().join("AGENTS.md")).unwrap();
+        assert!(!content.contains("apkg:rules"));
+        assert!(content.contains("# Agents"));
+    }
+
+    #[test]
+    fn test_cleanup_codex_setup_keeps_other_rules_in_agents_md() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        // Set up two rules
+        let rules_dir = tmp.path().join(".codex").join("rules");
+        let pkg1 = rules_dir.join("@acme").join("no-todo");
+        std::fs::create_dir_all(&pkg1).unwrap();
+        std::fs::write(
+            pkg1.join("no-todo.md"),
+            "---\ndescription: Disallow TODO\n---\nContent.\n",
+        )
+        .unwrap();
+
+        let pkg2 = rules_dir.join("@acme").join("snake-case");
+        std::fs::create_dir_all(&pkg2).unwrap();
+        std::fs::write(
+            pkg2.join("snake-case.md"),
+            "---\ndescription: Use snake_case\n---\nContent.\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            tmp.path().join("AGENTS.md"),
+            "<!-- apkg:rules -->\n## Rules\n\n- [Disallow TODO](.codex/rules/@acme/no-todo/no-todo.md)\n- [Use snake_case](.codex/rules/@acme/snake-case/snake-case.md)\n<!-- /apkg:rules -->\n",
+        )
+        .unwrap();
+
+        // Remove only the first rule
+        cleanup_codex_setup(tmp.path(), "@acme/no-todo");
+
+        let content = std::fs::read_to_string(tmp.path().join("AGENTS.md")).unwrap();
+        assert!(content.contains("<!-- apkg:rules -->"));
+        assert!(content.contains("[Use snake_case]"));
+        assert!(!content.contains("no-todo"));
     }
 
     #[test]

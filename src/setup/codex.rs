@@ -37,14 +37,26 @@ pub fn setup_codex(
         )
     })?;
 
-    let require_frontmatter = !matches!(info.package_type, PackageType::Command);
+    let require_frontmatter = !matches!(info.package_type, PackageType::Command | PackageType::Rule);
     let md_files = find_definition_files(install_dir, require_frontmatter);
 
     // Skills (and commands, which Codex treats as skills) stay as markdown —
     // copy them directly instead of transforming to TOML.
-    if matches!(info.package_type, PackageType::Skill | PackageType::Command) {
+    if matches!(info.package_type, PackageType::Skill | PackageType::Command | PackageType::Rule) {
         let rename_to_skill = info.package_type == PackageType::Command;
-        return setup_codex_skill(&target_dir, install_dir, info, &md_files, rename_to_skill);
+        let mut created =
+            setup_codex_skill(&target_dir, install_dir, info, &md_files, rename_to_skill)?;
+
+        // After writing rule files, update the managed section in AGENTS.md
+        // so Codex can discover the rules.
+        if info.package_type == PackageType::Rule {
+            let rules = collect_codex_rules(project_root);
+            if let Some(path) = update_agents_md_rules(project_root, &rules)? {
+                created.push(path);
+            }
+        }
+
+        return Ok(created);
     }
 
     if md_files.is_empty() {
@@ -210,6 +222,192 @@ fn escape_toml_basic(s: &str) -> String {
 fn escape_toml_multiline(s: &str) -> String {
     // Inside """, the only problematic sequence is three or more consecutive quotes.
     s.replace("\"\"\"", "\"\"\\\"")
+}
+
+const RULES_SECTION_START: &str = "<!-- apkg:rules -->";
+const RULES_SECTION_END: &str = "<!-- /apkg:rules -->";
+
+/// Scan `.codex/rules/` for all installed rule `.md` files.
+/// Returns `(title, relative_path)` pairs sorted by path for deterministic output.
+pub fn collect_codex_rules(project_root: &Path) -> Vec<(String, PathBuf)> {
+    let rules_dir = project_root.join(".codex").join("rules");
+    let mut rules = Vec::new();
+
+    let Ok(scopes) = fs::read_dir(&rules_dir) else {
+        return rules;
+    };
+
+    for scope_entry in scopes.filter_map(Result::ok) {
+        let scope_path = scope_entry.path();
+        if !scope_path.is_dir() {
+            continue;
+        }
+
+        // Could be a scope dir (@acme) containing package dirs, or a package dir directly.
+        let scope_name = scope_entry.file_name().to_string_lossy().into_owned();
+        if scope_name.starts_with('@') {
+            // Scoped: iterate package dirs inside scope
+            if let Ok(pkgs) = fs::read_dir(&scope_path) {
+                for pkg_entry in pkgs.filter_map(Result::ok) {
+                    if pkg_entry.path().is_dir() {
+                        collect_rules_from_pkg_dir(
+                            project_root,
+                            &pkg_entry.path(),
+                            &mut rules,
+                        );
+                    }
+                }
+            }
+        } else {
+            // Unscoped package dir
+            collect_rules_from_pkg_dir(project_root, &scope_path, &mut rules);
+        }
+    }
+
+    rules.sort_by(|a, b| a.1.cmp(&b.1));
+    rules
+}
+
+/// Collect rule entries from a single package directory under `.codex/rules/`.
+fn collect_rules_from_pkg_dir(
+    project_root: &Path,
+    pkg_dir: &Path,
+    rules: &mut Vec<(String, PathBuf)>,
+) {
+    let Ok(entries) = fs::read_dir(pkg_dir) else {
+        return;
+    };
+
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")) {
+            let title = extract_rule_title(&path);
+            let rel = path
+                .strip_prefix(project_root)
+                .unwrap_or(&path)
+                .to_path_buf();
+            rules.push((title, rel));
+        }
+    }
+}
+
+/// Extract a human-readable title from a rule file.
+/// Tries frontmatter `description`, then `name`, then falls back to the file stem.
+fn extract_rule_title(path: &Path) -> String {
+    let content = fs::read_to_string(path).unwrap_or_default();
+    let pairs = parse_frontmatter(&content);
+
+    if let Some((_, desc)) = pairs.iter().find(|(k, _)| k == "description") {
+        if !desc.is_empty() {
+            return desc.clone();
+        }
+    }
+    if let Some((_, name)) = pairs.iter().find(|(k, _)| k == "name") {
+        if !name.is_empty() {
+            return name.clone();
+        }
+    }
+
+    // Fallback: prettify the file stem
+    path.file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "rule".to_string())
+}
+
+/// Update (or create) the managed `<!-- apkg:rules -->` section in `AGENTS.md`.
+///
+/// - If `rules` is empty and no managed section exists, does nothing and returns `None`.
+/// - If `rules` is empty and a managed section exists, removes it.
+/// - Otherwise, writes/replaces the managed section with the current rule list.
+///
+/// Returns `Some(path)` to `AGENTS.md` when the file was written.
+pub fn update_agents_md_rules(
+    project_root: &Path,
+    rules: &[(String, PathBuf)],
+) -> Result<Option<PathBuf>, String> {
+    let agents_md = project_root.join("AGENTS.md");
+    let existing = fs::read_to_string(&agents_md).unwrap_or_default();
+
+    let has_section = existing.contains(RULES_SECTION_START);
+
+    // Nothing to do: no rules and no existing section to clean up.
+    if rules.is_empty() && !has_section {
+        return Ok(None);
+    }
+
+    let section = if rules.is_empty() {
+        String::new()
+    } else {
+        let mut s = String::new();
+        let _ = writeln!(s, "{RULES_SECTION_START}");
+        let _ = writeln!(s, "## Rules");
+        let _ = writeln!(s);
+        for (title, rel_path) in rules {
+            let _ = writeln!(s, "- [{}]({})", title, rel_path.display());
+        }
+        let _ = write!(s, "{RULES_SECTION_END}");
+        s
+    };
+
+    let new_content = if has_section {
+        // Replace existing section (including markers).
+        if let (Some(start), Some(end)) = (
+            existing.find(RULES_SECTION_START),
+            existing.find(RULES_SECTION_END),
+        ) {
+            let before = &existing[..start];
+            let after = &existing[end + RULES_SECTION_END.len()..];
+
+            if section.is_empty() {
+                // Remove the section and any surrounding blank lines.
+                let before = before.trim_end_matches('\n');
+                let after = after.trim_start_matches('\n');
+                if before.is_empty() && after.is_empty() {
+                    String::new()
+                } else if before.is_empty() {
+                    after.to_string()
+                } else if after.is_empty() {
+                    format!("{before}\n")
+                } else {
+                    format!("{before}\n\n{after}")
+                }
+            } else {
+                format!("{before}{section}{after}")
+            }
+        } else {
+            // Malformed markers — append fresh section.
+            let mut out = existing.clone();
+            if !out.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push('\n');
+            out.push_str(&section);
+            out.push('\n');
+            out
+        }
+    } else {
+        // No existing section — append.
+        let mut out = existing;
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&section);
+        out.push('\n');
+        out
+    };
+
+    if new_content.is_empty() {
+        // If file becomes empty, remove it.
+        let _ = fs::remove_file(&agents_md);
+    } else {
+        fs::write(&agents_md, &new_content)
+            .map_err(|e| format!("Failed to write {}: {e}", agents_md.display()))?;
+    }
+
+    Ok(Some(agents_md))
 }
 
 #[cfg(test)]
@@ -568,6 +766,236 @@ mod tests {
 
         let content = fs::read_to_string(&paths[0]).unwrap();
         assert!(content.contains("Run a comprehensive audit"));
+    }
+
+    // --- Rule tests ---
+
+    fn rule_info() -> PackageInfo {
+        PackageInfo {
+            name: "@acme/no-todo-comments".to_string(),
+            package_type: PackageType::Rule,
+            description: "Disallow TODO comments in code".to_string(),
+            main: None,
+            platform: Vec::new(),
+            skill: None,
+            agent: None,
+        }
+    }
+
+    #[test]
+    fn test_setup_codex_rule_copies_md_and_updates_agents_md() {
+        let tmp = TempDir::new().unwrap();
+        let install_dir = tmp.path().join("apkg_packages/@acme/no-todo-comments");
+        fs::create_dir_all(&install_dir).unwrap();
+        let original = "---\nname: no-todo\ndescription: Disallow TODO comments\n---\nDo not leave TODO comments in code.\n";
+        fs::write(install_dir.join("no-todo.md"), original).unwrap();
+
+        let paths = setup_codex(tmp.path(), &install_dir, &rule_info()).unwrap();
+        // Rule file + AGENTS.md
+        assert_eq!(paths.len(), 2);
+
+        let rule_path = &paths[0];
+        assert_eq!(rule_path.extension().unwrap(), "md");
+        assert!(rule_path
+            .parent()
+            .unwrap()
+            .ends_with("rules/@acme/no-todo-comments"));
+        let content = fs::read_to_string(rule_path).unwrap();
+        assert_eq!(content, original);
+
+        // AGENTS.md created with managed section
+        let agents_md = tmp.path().join("AGENTS.md");
+        assert!(agents_md.exists());
+        let agents_content = fs::read_to_string(&agents_md).unwrap();
+        assert!(agents_content.contains("<!-- apkg:rules -->"));
+        assert!(agents_content.contains("<!-- /apkg:rules -->"));
+        assert!(agents_content.contains("[Disallow TODO comments]"));
+        assert!(agents_content.contains(".codex/rules/@acme/no-todo-comments/no-todo.md"));
+    }
+
+    #[test]
+    fn test_setup_codex_rule_fallback_updates_agents_md() {
+        let tmp = TempDir::new().unwrap();
+        let install_dir = tmp.path().join("apkg_packages/@acme/no-todo-comments");
+        fs::create_dir_all(&install_dir).unwrap();
+
+        let paths = setup_codex(tmp.path(), &install_dir, &rule_info()).unwrap();
+        // Rule file + AGENTS.md
+        assert_eq!(paths.len(), 2);
+
+        let rule_path = &paths[0];
+        assert!(rule_path
+            .parent()
+            .unwrap()
+            .ends_with("rules/@acme/no-todo-comments"));
+        assert_eq!(rule_path.extension().unwrap(), "md");
+
+        let content = fs::read_to_string(rule_path).unwrap();
+        assert!(content.contains("name:"));
+        assert!(content.contains("Disallow TODO comments"));
+
+        let agents_md = tmp.path().join("AGENTS.md");
+        assert!(agents_md.exists());
+    }
+
+    #[test]
+    fn test_setup_codex_rule_plain_md_no_frontmatter() {
+        let tmp = TempDir::new().unwrap();
+        let install_dir = tmp.path().join("apkg_packages/@acme/no-todo-comments");
+        fs::create_dir_all(&install_dir).unwrap();
+        fs::write(
+            install_dir.join("rule.md"),
+            "Never leave TODO comments in production code.",
+        )
+        .unwrap();
+
+        let paths = setup_codex(tmp.path(), &install_dir, &rule_info()).unwrap();
+        assert!(paths.iter().any(|p| p.extension().unwrap() == "md"
+            && p.parent().unwrap().ends_with("rules/@acme/no-todo-comments")));
+
+        let rule_path = paths.iter().find(|p| p.file_name().unwrap() != "AGENTS.md").unwrap();
+        let content = fs::read_to_string(rule_path).unwrap();
+        assert!(content.contains("Never leave TODO comments"));
+    }
+
+    // --- AGENTS.md managed section tests ---
+
+    #[test]
+    fn test_update_agents_md_creates_file() {
+        let tmp = TempDir::new().unwrap();
+        let rules = vec![
+            ("Disallow TODO".to_string(), PathBuf::from(".codex/rules/@acme/no-todo/no-todo.md")),
+        ];
+        let result = update_agents_md_rules(tmp.path(), &rules).unwrap();
+        assert!(result.is_some());
+
+        let content = fs::read_to_string(tmp.path().join("AGENTS.md")).unwrap();
+        assert!(content.contains("<!-- apkg:rules -->"));
+        assert!(content.contains("## Rules"));
+        assert!(content.contains("- [Disallow TODO](.codex/rules/@acme/no-todo/no-todo.md)"));
+        assert!(content.contains("<!-- /apkg:rules -->"));
+    }
+
+    #[test]
+    fn test_update_agents_md_appends_to_existing() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("AGENTS.md"), "# My Project Agents\n\nSome existing content.\n").unwrap();
+
+        let rules = vec![
+            ("My rule".to_string(), PathBuf::from(".codex/rules/my-rule/rule.md")),
+        ];
+        update_agents_md_rules(tmp.path(), &rules).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join("AGENTS.md")).unwrap();
+        assert!(content.starts_with("# My Project Agents"));
+        assert!(content.contains("Some existing content."));
+        assert!(content.contains("<!-- apkg:rules -->"));
+        assert!(content.contains("[My rule]"));
+        assert!(content.contains("<!-- /apkg:rules -->"));
+    }
+
+    #[test]
+    fn test_update_agents_md_replaces_existing_section() {
+        let tmp = TempDir::new().unwrap();
+        let initial = "# Agents\n\n<!-- apkg:rules -->\n## Rules\n\n- [Old rule](.codex/rules/old/old.md)\n<!-- /apkg:rules -->\n\nMore content.\n";
+        fs::write(tmp.path().join("AGENTS.md"), initial).unwrap();
+
+        let rules = vec![
+            ("New rule".to_string(), PathBuf::from(".codex/rules/new/new.md")),
+        ];
+        update_agents_md_rules(tmp.path(), &rules).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join("AGENTS.md")).unwrap();
+        assert!(content.contains("# Agents"));
+        assert!(content.contains("[New rule](.codex/rules/new/new.md)"));
+        assert!(!content.contains("Old rule"));
+        assert!(content.contains("More content."));
+    }
+
+    #[test]
+    fn test_update_agents_md_removes_section_when_empty() {
+        let tmp = TempDir::new().unwrap();
+        let initial = "# Agents\n\n<!-- apkg:rules -->\n## Rules\n\n- [Old rule](.codex/rules/old/old.md)\n<!-- /apkg:rules -->\n\nMore content.\n";
+        fs::write(tmp.path().join("AGENTS.md"), initial).unwrap();
+
+        let rules: Vec<(String, PathBuf)> = vec![];
+        update_agents_md_rules(tmp.path(), &rules).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join("AGENTS.md")).unwrap();
+        assert!(!content.contains("apkg:rules"));
+        assert!(content.contains("# Agents"));
+        assert!(content.contains("More content."));
+    }
+
+    #[test]
+    fn test_update_agents_md_noop_when_empty_and_no_file() {
+        let tmp = TempDir::new().unwrap();
+        let rules: Vec<(String, PathBuf)> = vec![];
+        let result = update_agents_md_rules(tmp.path(), &rules).unwrap();
+        assert!(result.is_none());
+        assert!(!tmp.path().join("AGENTS.md").exists());
+    }
+
+    #[test]
+    fn test_update_agents_md_removes_file_when_only_section() {
+        let tmp = TempDir::new().unwrap();
+        let initial = "<!-- apkg:rules -->\n## Rules\n\n- [Rule](.codex/rules/r/r.md)\n<!-- /apkg:rules -->\n";
+        fs::write(tmp.path().join("AGENTS.md"), initial).unwrap();
+
+        let rules: Vec<(String, PathBuf)> = vec![];
+        update_agents_md_rules(tmp.path(), &rules).unwrap();
+
+        // File should be removed since it would be empty.
+        assert!(!tmp.path().join("AGENTS.md").exists());
+    }
+
+    #[test]
+    fn test_collect_codex_rules_scoped_and_unscoped() {
+        let tmp = TempDir::new().unwrap();
+
+        // Scoped rule
+        let scoped = tmp.path().join(".codex/rules/@acme/no-todo");
+        fs::create_dir_all(&scoped).unwrap();
+        fs::write(
+            scoped.join("no-todo.md"),
+            "---\nname: no-todo\ndescription: Disallow TODO\n---\nContent.\n",
+        ).unwrap();
+
+        // Unscoped rule
+        let unscoped = tmp.path().join(".codex/rules/my-rule");
+        fs::create_dir_all(&unscoped).unwrap();
+        fs::write(unscoped.join("rule.md"), "Just a plain rule.").unwrap();
+
+        let rules = collect_codex_rules(tmp.path());
+        assert_eq!(rules.len(), 2);
+
+        // Sorted by path, so .codex/rules/@acme comes before .codex/rules/my-rule
+        assert_eq!(rules[0].0, "Disallow TODO");
+        assert_eq!(rules[1].0, "rule"); // fallback to file stem
+    }
+
+    #[test]
+    fn test_extract_rule_title_from_frontmatter() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("rule.md");
+        fs::write(&path, "---\nname: my-rule\ndescription: A great rule\n---\nBody.\n").unwrap();
+        assert_eq!(extract_rule_title(&path), "A great rule");
+    }
+
+    #[test]
+    fn test_extract_rule_title_fallback_to_name() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("rule.md");
+        fs::write(&path, "---\nname: my-rule\n---\nBody.\n").unwrap();
+        assert_eq!(extract_rule_title(&path), "my-rule");
+    }
+
+    #[test]
+    fn test_extract_rule_title_fallback_to_stem() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("my-custom-rule.md");
+        fs::write(&path, "No frontmatter here.").unwrap();
+        assert_eq!(extract_rule_title(&path), "my-custom-rule");
     }
 
     #[test]

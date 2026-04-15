@@ -5,6 +5,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use regex_lite::Regex;
 
 use crate::api::client::ApiClient;
+use crate::config::manifest::validate_platforms;
 use crate::config::{credentials, manifest};
 use crate::error::AppError;
 use crate::util::{display, integrity, tarball};
@@ -78,6 +79,10 @@ pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
     if let Some(deps) = &m.dependencies {
         obj.insert("dependencies".into(), serde_json::json!(deps));
     }
+    for warning in validate_platforms(&m.platform) {
+        display::warn(&warning);
+    }
+    obj.insert("platform".into(), serde_json::json!(m.platform));
 
     let metadata_json = serde_json::to_string(&metadata)?;
     let client = ApiClient::new(registry)?;

@@ -109,6 +109,9 @@ fn cleanup_codex_setup(project_root: &Path, package_name: &str) {
     // Rebuild the managed rules section in AGENTS.md after removing rule files.
     let rules = crate::setup::codex::collect_codex_rules(project_root);
     let _ = crate::setup::codex::update_agents_md_rules(project_root, &rules);
+
+    // Clean up any dangling CLAUDE.md symlink if AGENTS.md was removed.
+    crate::setup::maybe_cleanup_claude_md_symlink(project_root);
 }
 
 /// Remove Cursor setup files (`.cursor/{type}/@scope/name/` or `.cursor/{type}/name/`)
@@ -355,6 +358,38 @@ mod tests {
         assert!(content.contains("<!-- apkg:rules -->"));
         assert!(content.contains("[Use snake_case]"));
         assert!(!content.contains("no-todo"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_cleanup_codex_removes_dangling_claude_md_symlink() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        // Set up a single rule in .codex/rules/
+        let rules_dir = tmp.path().join(".codex").join("rules");
+        let pkg_dir = rules_dir.join("@acme").join("only-rule");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("only-rule.md"),
+            "---\nname: only-rule\ndescription: The only rule\n---\nContent.\n",
+        )
+        .unwrap();
+
+        // AGENTS.md with the rule
+        std::fs::write(
+            tmp.path().join("AGENTS.md"),
+            "<!-- apkg:rules -->\n## Rules\n\n- [The only rule](.codex/rules/@acme/only-rule/only-rule.md)\n<!-- /apkg:rules -->\n",
+        )
+        .unwrap();
+
+        // CLAUDE.md symlink to AGENTS.md
+        std::os::unix::fs::symlink("AGENTS.md", tmp.path().join("CLAUDE.md")).unwrap();
+
+        // Remove the rule — should clean up AGENTS.md and the CLAUDE.md symlink
+        cleanup_codex_setup(tmp.path(), "@acme/only-rule");
+
+        assert!(!tmp.path().join("AGENTS.md").exists());
+        assert!(tmp.path().join("CLAUDE.md").symlink_metadata().is_err());
     }
 
     #[test]

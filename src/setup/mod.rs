@@ -518,11 +518,7 @@ pub fn display_report(report: &SetupReport) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
     use tempfile::TempDir;
-
-    /// Mutex to serialize tests that mutate the HOME env var.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     /// Run a closure with HOME pointing at a fresh temp directory so that
     /// `Settings::load()` finds no user config and returns defaults.
@@ -530,7 +526,7 @@ mod tests {
     where
         F: FnOnce(),
     {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
         f();

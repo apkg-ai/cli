@@ -269,4 +269,237 @@ mod tests {
         let id2 = compute_key_id(b"key-b");
         assert_ne!(id1, id2);
     }
+
+    use wiremock::matchers::{method, path, path_regex};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn setup_env(tmp: &std::path::Path) {
+        std::env::set_var("HOME", tmp);
+        std::env::set_var("APKG_TOKEN", "test-token");
+    }
+
+    #[test]
+    fn test_generate_key() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        // Create the keys directory
+        std::fs::create_dir_all(tmp.path().join(".apkg").join("keys")).unwrap();
+        let result = generate("test-key");
+        assert!(result.is_ok());
+        // Verify a key file was created
+        let keys_dir = tmp.path().join(".apkg").join("keys");
+        let entries: Vec<_> = std::fs::read_dir(&keys_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(entries.len(), 1);
+    }
+
+    #[test]
+    fn test_list_local_keys() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        // Generate a key first
+        std::fs::create_dir_all(tmp.path().join(".apkg").join("keys")).unwrap();
+        generate("local-key").unwrap();
+
+        // Now test listing
+        let local_keys = keys::list_local().unwrap();
+        assert_eq!(local_keys.len(), 1);
+        assert_eq!(local_keys[0].name, "local-key");
+    }
+
+    #[test]
+    fn test_list_local_empty() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        std::fs::create_dir_all(tmp.path().join(".apkg").join("keys")).unwrap();
+        let local_keys = keys::list_local().unwrap();
+        assert!(local_keys.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_remote_keys() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/auth/keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keys": [{
+                    "keyId": "key-001",
+                    "name": "mykey",
+                    "algorithm": "ed25519",
+                    "status": "active",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }]
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(
+            KeyAction::List { local: false },
+            Some(&server.uri()),
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_list_remote_empty() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/auth/keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keys": []
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(
+            KeyAction::List { local: false },
+            Some(&server.uri()),
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_register_no_local_keys() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        std::fs::create_dir_all(tmp.path().join(".apkg").join("keys")).unwrap();
+        let server = MockServer::start().await;
+
+        let result = run(
+            KeyAction::Register {
+                name: None,
+                key_id: None,
+            },
+            Some(&server.uri()),
+        )
+        .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_register_single_key() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        std::fs::create_dir_all(tmp.path().join(".apkg").join("keys")).unwrap();
+        generate("reg-key").unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/auth/keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keyId": "key-reg-001",
+                "name": "reg-key",
+                "algorithm": "ed25519",
+                "createdAt": "2026-01-01T00:00:00Z"
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(
+            KeyAction::Register {
+                name: None,
+                key_id: None,
+            },
+            Some(&server.uri()),
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_revoke_key() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        std::fs::create_dir_all(tmp.path().join(".apkg").join("keys")).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path_regex("/auth/keys/.+/revoke"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keyId": "key-001",
+                "status": "revoked",
+                "revokedAt": "2026-02-01T00:00:00Z"
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(
+            KeyAction::Revoke {
+                key_id: "key-001",
+                reason: "compromised",
+                message: Some("Key was exposed"),
+            },
+            Some(&server.uri()),
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_rotate_key() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        std::fs::create_dir_all(tmp.path().join(".apkg").join("keys")).unwrap();
+        // Generate a key to rotate from
+        generate("old-key").unwrap();
+        let local_keys = keys::list_local().unwrap();
+        let old_key_id = local_keys[0].key_id.clone();
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/auth/keys/rotate"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "newKeyId": "key-new",
+                "oldKeyId": old_key_id,
+                "rotatedAt": "2026-02-01T00:00:00Z"
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(
+            KeyAction::Rotate {
+                old_key_id: &old_key_id,
+                name: Some("rotated-key"),
+            },
+            Some(&server.uri()),
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_rotate_key_not_found() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        std::fs::create_dir_all(tmp.path().join(".apkg").join("keys")).unwrap();
+        let server = MockServer::start().await;
+
+        let result = run(
+            KeyAction::Rotate {
+                old_key_id: "nonexistent-key",
+                name: None,
+            },
+            Some(&server.uri()),
+        )
+        .await;
+        assert!(result.is_err());
+    }
 }

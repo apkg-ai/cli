@@ -94,9 +94,6 @@ pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn make_response(
         access_token: Option<&str>,
@@ -203,7 +200,7 @@ mod tests {
 
     #[test]
     fn test_resolve_registry_cli_arg_wins() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
         unsafe { std::env::set_var("APKG_REGISTRY", "http://env.example") };
         let settings = Settings {
             registry: Some("http://settings.example".to_string()),
@@ -216,7 +213,7 @@ mod tests {
 
     #[test]
     fn test_resolve_registry_env_var() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
         unsafe { std::env::set_var("APKG_REGISTRY", "http://env.example") };
         let settings = Settings {
             registry: Some("http://settings.example".to_string()),
@@ -229,7 +226,7 @@ mod tests {
 
     #[test]
     fn test_resolve_registry_settings() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
         unsafe { std::env::remove_var("APKG_REGISTRY") };
         let settings = Settings {
             registry: Some("http://settings.example".to_string()),
@@ -241,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_resolve_registry_default() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
         unsafe { std::env::remove_var("APKG_REGISTRY") };
         let settings = Settings::default();
         let result = resolve_registry(None, &settings);

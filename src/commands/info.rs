@@ -147,3 +147,161 @@ pub async fn run(opts: InfoOptions<'_>) -> Result<(), AppError> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn setup_env(tmp: &std::path::Path) {
+        std::env::set_var("HOME", tmp);
+        std::env::set_var("APKG_TOKEN", "test-token");
+    }
+
+    #[tokio::test]
+    async fn test_info_json_output() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/mypkg"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "mypkg",
+                "description": "A test package",
+                "distTags": { "latest": "1.0.0" },
+                "versions": {
+                    "1.0.0": {
+                        "version": "1.0.0",
+                        "type": "skill",
+                        "platform": ["claude"]
+                    }
+                },
+                "maintainers": [{ "username": "alice" }],
+                "createdAt": "2026-01-01T00:00:00Z",
+                "updatedAt": "2026-02-01T00:00:00Z"
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(InfoOptions {
+            package: "mypkg",
+            json: true,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_info_human_output() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/mypkg"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "mypkg",
+                "description": "A test package",
+                "distTags": { "latest": "1.0.0" },
+                "versions": {
+                    "1.0.0": { "version": "1.0.0" }
+                },
+                "maintainers": [{ "username": "alice", "role": "owner" }],
+                "createdAt": "2026-01-01T00:00:00Z",
+                "updatedAt": "2026-02-01T00:00:00Z"
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(InfoOptions {
+            package: "mypkg",
+            json: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_info_with_versions_and_yanked() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/mypkg"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "mypkg",
+                "distTags": { "latest": "2.0.0" },
+                "versions": {
+                    "1.0.0": { "version": "1.0.0", "yanked": true, "publishedAt": "2026-01-01" },
+                    "2.0.0": { "version": "2.0.0", "type": "agent", "publishedAt": "2026-02-01" }
+                },
+                "maintainers": []
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(InfoOptions {
+            package: "mypkg",
+            json: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_info_with_empty_description() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/mypkg"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "mypkg",
+                "description": "",
+                "distTags": {},
+                "versions": {},
+                "maintainers": [],
+                "platform": ["claude", "cursor"]
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(InfoOptions {
+            package: "mypkg",
+            json: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_info_not_found() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/nonexistent"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "error": { "code": "NOT_FOUND", "message": "Not found" }
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(InfoOptions {
+            package: "nonexistent",
+            json: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_err());
+    }
+}

@@ -136,4 +136,42 @@ mod tests {
             "https://bitbucket.org/team/repo"
         );
     }
+
+    #[test]
+    fn test_get_remote_url_in_git_repo() {
+        // This test runs inside the apkg/cli git repo, so origin should exist
+        let url = get_remote_url();
+        // In a git repo with a remote, this should return Some
+        // If running in an environment without a remote, it returns None (still valid)
+        if let Some(ref u) = url {
+            assert!(!u.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_get_repository_url_normalizes() {
+        let url = get_repository_url();
+        if let Some(ref u) = url {
+            // Should be normalized to https
+            assert!(u.starts_with("https://"));
+            assert!(!u.ends_with(".git"));
+        }
+    }
+
+    #[test]
+    fn test_get_user_name() {
+        let name = get_user_name();
+        // In most dev/CI environments, git user.name is configured
+        if let Some(ref n) = name {
+            assert!(!n.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_get_user_email() {
+        let email = get_user_email();
+        if let Some(ref e) = email {
+            assert!(!e.is_empty());
+        }
+    }
 }

@@ -6,6 +6,16 @@ mod resolver;
 mod setup;
 mod util;
 
+#[cfg(test)]
+mod test_utils {
+    use std::sync::Mutex;
+    /// Global mutex for tests that modify process-global state (env vars,
+    /// current directory). Every test module that touches `HOME`, `APKG_TOKEN`,
+    /// `APKG_CACHE_DIR`, or calls `set_current_dir` must lock this **instead of**
+    /// a per-module mutex so that tests across different modules don't race.
+    pub static ENV_LOCK: Mutex<()> = Mutex::new(());
+}
+
 use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser, Subcommand};

@@ -92,3 +92,132 @@ async fn run_ls(package: &str, registry: Option<&str>) -> Result<(), AppError> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path, path_regex};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn setup_env(tmp: &std::path::Path) {
+        std::env::set_var("HOME", tmp);
+        std::env::set_var("APKG_TOKEN", "test-token");
+    }
+
+    #[tokio::test]
+    async fn test_add_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path_regex("/packages/.+/dist-tags/.+"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tag": "latest",
+                "version": "1.0.0"
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(
+            DistTagAction::Add {
+                package_at_version: "mypkg@1.0.0",
+                tag: "latest",
+            },
+            Some(&server.uri()),
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_add_missing_version() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+
+        let result = run(
+            DistTagAction::Add {
+                package_at_version: "mypkg",
+                tag: "latest",
+            },
+            Some(&server.uri()),
+        )
+        .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_rm_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path_regex("/packages/.+/dist-tags/.+"))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&server)
+            .await;
+
+        let result = run(
+            DistTagAction::Rm {
+                package: "mypkg",
+                tag: "beta",
+            },
+            Some(&server.uri()),
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_ls_with_tags() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/mypkg"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "mypkg",
+                "distTags": { "latest": "1.0.0", "beta": "2.0.0-beta.1" },
+                "versions": {},
+                "maintainers": []
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(
+            DistTagAction::Ls { package: "mypkg" },
+            Some(&server.uri()),
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_ls_empty() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/mypkg"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "mypkg",
+                "distTags": {},
+                "versions": {},
+                "maintainers": []
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(
+            DistTagAction::Ls { package: "mypkg" },
+            Some(&server.uri()),
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+}

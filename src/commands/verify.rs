@@ -533,4 +533,556 @@ mod tests {
         let results: Vec<PackageResult> = vec![];
         print_table(&results);
     }
+
+    #[test]
+    fn test_parse_lockfile_key_no_at() {
+        assert!(parse_lockfile_key("nover").is_none());
+    }
+
+    #[test]
+    fn test_parse_lockfile_key_only_at_start() {
+        assert!(parse_lockfile_key("@1.0.0").is_none());
+    }
+
+    // --- async tests for run() and internal verify functions ---
+
+    use std::collections::BTreeMap;
+    use wiremock::matchers::{method, path, path_regex};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn setup_env(tmp: &std::path::Path) {
+        std::env::set_var("HOME", tmp);
+        std::env::set_var("APKG_TOKEN", "test-token");
+        std::env::set_var("APKG_CACHE_DIR", tmp.join(".cache").to_str().unwrap());
+    }
+
+    fn write_lockfile(dir: &std::path::Path, entries: &[(&str, &str, &str)]) {
+        let mut packages = BTreeMap::new();
+        for &(name, version, integrity) in entries {
+            let key = lockfile::lock_key(name, version);
+            packages.insert(
+                key,
+                lockfile::LockedPackage {
+                    version: version.to_string(),
+                    resolved: String::new(),
+                    integrity: integrity.to_string(),
+                    dependencies: BTreeMap::new(),
+                    peer_dependencies: BTreeMap::new(),
+                    package_type: "skill".to_string(),
+                    optional: false,
+                },
+            );
+        }
+        let lf = lockfile::Lockfile {
+            lockfile_version: lockfile::LOCKFILE_VERSION,
+            requires: true,
+            resolved: "2026-01-01T00:00:00Z".to_string(),
+            packages,
+        };
+        lockfile::save(dir, &lf).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_verify_no_lockfile() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        let result = run(VerifyOptions {
+            package: None,
+            json: false,
+            strict: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("lockfile") || err.contains("install"));
+    }
+
+    #[tokio::test]
+    async fn test_verify_empty_lockfile() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        write_lockfile(tmp.path(), &[]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        // Mock registry signing keys
+        Mock::given(method("GET"))
+            .and(path("/registry/signing-keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keys": []
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(VerifyOptions {
+            package: None,
+            json: false,
+            strict: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_package_not_in_lockfile() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        write_lockfile(tmp.path(), &[("foo", "1.0.0", "sha256-abc")]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        let result = run(VerifyOptions {
+            package: Some("nonexistent"),
+            json: false,
+            strict: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_verify_integrity_from_cache_ok() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+
+        // Create a test tarball and cache it
+        let tarball_data = b"test-tarball-content";
+        let integrity_hash = crate::util::integrity::sha256_integrity(tarball_data);
+        cache::store("foo", "1.0.0", tarball_data, &integrity_hash).unwrap();
+
+        write_lockfile(tmp.path(), &[("foo", "1.0.0", &integrity_hash)]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        // Mock registry signing keys
+        Mock::given(method("GET"))
+            .and(path("/registry/signing-keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keys": []
+            })))
+            .mount(&server)
+            .await;
+        // Mock get_package for signature check
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "foo",
+                "versions": {
+                    "1.0.0": {
+                        "version": "1.0.0"
+                    }
+                }
+            })))
+            .mount(&server)
+            .await;
+        // Mock provenance
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+/1\\.0\\.0/provenance"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let result = run(VerifyOptions {
+            package: Some("foo"),
+            json: false,
+            strict: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_integrity_mismatch_from_cache() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+
+        // Cache with one integrity, lockfile expects another
+        let tarball_data = b"test-tarball-content";
+        let actual_integrity = crate::util::integrity::sha256_integrity(tarball_data);
+        cache::store("bar", "2.0.0", tarball_data, &actual_integrity).unwrap();
+
+        // Lockfile expects a different integrity
+        write_lockfile(tmp.path(), &[("bar", "2.0.0", "sha256-DIFFERENT")]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/registry/signing-keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keys": []
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "bar",
+                "versions": {
+                    "2.0.0": {
+                        "version": "2.0.0"
+                    }
+                }
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+/2\\.0\\.0/provenance"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        // Non-strict: should succeed but report mismatch
+        let result = run(VerifyOptions {
+            package: Some("bar"),
+            json: false,
+            strict: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_strict_fails_on_unsigned() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+
+        let tarball_data = b"test-content";
+        let integrity_hash = crate::util::integrity::sha256_integrity(tarball_data);
+        cache::store("pkg", "1.0.0", tarball_data, &integrity_hash).unwrap();
+
+        write_lockfile(tmp.path(), &[("pkg", "1.0.0", &integrity_hash)]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/registry/signing-keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keys": []
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "pkg",
+                "versions": {
+                    "1.0.0": {
+                        "version": "1.0.0"
+                    }
+                }
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+/1\\.0\\.0/provenance"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        // Strict mode: unsigned packages should cause failure
+        let result = run(VerifyOptions {
+            package: Some("pkg"),
+            json: false,
+            strict: true,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("failed verification"));
+    }
+
+    #[tokio::test]
+    async fn test_verify_json_output() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+
+        let tarball_data = b"json-test";
+        let integrity_hash = crate::util::integrity::sha256_integrity(tarball_data);
+        cache::store("jpkg", "1.0.0", tarball_data, &integrity_hash).unwrap();
+
+        write_lockfile(tmp.path(), &[("jpkg", "1.0.0", &integrity_hash)]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/registry/signing-keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keys": []
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "jpkg",
+                "versions": {
+                    "1.0.0": {
+                        "version": "1.0.0"
+                    }
+                }
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+/1\\.0\\.0/provenance"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let result = run(VerifyOptions {
+            package: Some("jpkg"),
+            json: true,
+            strict: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_all_packages_iterates_lockfile() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+
+        let data_a = b"data-a";
+        let data_b = b"data-b";
+        let hash_a = crate::util::integrity::sha256_integrity(data_a);
+        let hash_b = crate::util::integrity::sha256_integrity(data_b);
+        cache::store("pkg-a", "1.0.0", data_a, &hash_a).unwrap();
+        cache::store("pkg-b", "2.0.0", data_b, &hash_b).unwrap();
+
+        write_lockfile(tmp.path(), &[
+            ("pkg-a", "1.0.0", &hash_a),
+            ("pkg-b", "2.0.0", &hash_b),
+        ]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/registry/signing-keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keys": [{
+                    "keyId": "key-1",
+                    "publicKey": "dGVzdA==",
+                    "algorithm": "ed25519",
+                    "status": "active",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/[^/]+$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "pkg",
+                "versions": {
+                    "1.0.0": { "version": "1.0.0" },
+                    "2.0.0": { "version": "2.0.0" }
+                }
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+/provenance"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        // package: None -> iterates all lockfile entries
+        let result = run(VerifyOptions {
+            package: None,
+            json: false,
+            strict: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_with_signatures_and_provenance() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+
+        let data = b"signed-pkg-data";
+        let hash = crate::util::integrity::sha256_integrity(data);
+        cache::store("signed", "1.0.0", data, &hash).unwrap();
+
+        write_lockfile(tmp.path(), &[("signed", "1.0.0", &hash)]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/registry/signing-keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keys": [{
+                    "keyId": "key-1",
+                    "publicKey": "dGVzdA==",
+                    "algorithm": "ed25519",
+                    "status": "active",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/[^/]+$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "signed",
+                "versions": {
+                    "1.0.0": {
+                        "version": "1.0.0",
+                        "dist": {
+                            "tarball": "https://example.com/signed/1.0.0/tarball",
+                            "integrity": hash,
+                            "signatures": [{
+                                "keyId": "key-1",
+                                "signature": "dGVzdC1zaWc="
+                            }]
+                        }
+                    }
+                }
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+/provenance"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "subject": [{"name": "signed", "digest": {"sha256": "abc"}}],
+                "predicate": {
+                    "runDetails": {
+                        "builder": { "id": "https://github.com/actions/runner" }
+                    }
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(VerifyOptions {
+            package: Some("signed"),
+            json: false,
+            strict: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_integrity_download_path() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+
+        // DON'T cache — force the download path
+        let data = b"download-verify-data";
+        let hash = crate::util::integrity::sha256_integrity(data);
+
+        write_lockfile(tmp.path(), &[("dlpkg", "3.0.0", &hash)]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/registry/signing-keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keys": []
+            })))
+            .mount(&server)
+            .await;
+        // Download endpoint
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+/3\\.0\\.0/tarball"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(data.to_vec()))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/[^/]+$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "dlpkg",
+                "versions": {
+                    "3.0.0": { "version": "3.0.0" }
+                }
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+/3\\.0\\.0/provenance"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let result = run(VerifyOptions {
+            package: Some("dlpkg"),
+            json: false,
+            strict: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_empty_integrity_in_lockfile() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+
+        // Lockfile entry with empty integrity
+        write_lockfile(tmp.path(), &[("nohash", "1.0.0", "")]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/registry/signing-keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keys": []
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/[^/]+$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "nohash",
+                "versions": {
+                    "1.0.0": { "version": "1.0.0" }
+                }
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+/provenance"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let result = run(VerifyOptions {
+            package: Some("nohash"),
+            json: false,
+            strict: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        // Should succeed (non-strict) but report error for integrity
+        assert!(result.is_ok());
+    }
 }

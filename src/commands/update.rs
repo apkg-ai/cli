@@ -384,4 +384,70 @@ mod tests {
         print_changes_table(&[], false);
         print_changes_table(&[], true);
     }
+
+    // --- async tests for run() ---
+
+
+    fn setup_env(tmp: &std::path::Path) {
+        std::env::set_var("HOME", tmp);
+        std::env::set_var("APKG_TOKEN", "test-token");
+        std::env::set_var("APKG_CACHE_DIR", tmp.join(".cache").to_str().unwrap());
+    }
+
+    fn write_project_manifest(dir: &std::path::Path, deps: &[(&str, &str)]) {
+        let mut dep_map = serde_json::Map::new();
+        for &(name, range) in deps {
+            dep_map.insert(name.to_string(), serde_json::Value::String(range.to_string()));
+        }
+        let manifest = serde_json::json!({
+            "name": "@test/project",
+            "version": "1.0.0",
+            "type": "project",
+            "description": "Test project",
+            "license": "MIT",
+            "platform": ["claude"],
+            "dependencies": dep_map,
+        });
+        std::fs::write(dir.join("apkg.json"), serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_update_empty_deps() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        write_project_manifest(tmp.path(), &[]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let result = run(UpdateOptions {
+            package: None,
+            registry: Some("http://localhost:1"),
+            latest: false,
+            dry_run: false,
+            setup_target: None,
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_update_unknown_package() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        write_project_manifest(tmp.path(), &[("foo", "^1.0.0")]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let result = run(UpdateOptions {
+            package: Some("nonexistent"),
+            registry: Some("http://localhost:1"),
+            latest: false,
+            dry_run: false,
+            setup_target: None,
+        })
+        .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("not in dependencies"));
+    }
 }

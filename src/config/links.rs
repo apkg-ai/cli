@@ -93,17 +93,13 @@ pub fn list() -> Result<Vec<LinkEntry>, AppError> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
     use super::*;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn with_temp_home<F>(f: F)
     where
         F: FnOnce(),
     {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
         f();

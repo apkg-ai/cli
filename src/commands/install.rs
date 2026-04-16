@@ -470,4 +470,55 @@ mod tests {
     fn test_is_dist_tag_gte() {
         assert!(!is_dist_tag(">=1.0.0"));
     }
+
+    // --- build_lockfile ---
+
+    #[test]
+    fn test_build_lockfile_empty() {
+        let result = ResolutionResult {
+            packages: BTreeMap::new(),
+        };
+        let lf = build_lockfile(&result);
+        assert_eq!(lf.lockfile_version, LOCKFILE_VERSION);
+        assert!(lf.requires);
+        assert!(lf.packages.is_empty());
+    }
+
+    #[test]
+    fn test_build_lockfile_single_package() {
+        let result = ResolutionResult {
+            packages: BTreeMap::from([make_resolved("foo", "1.0.0")]),
+        };
+        let lf = build_lockfile(&result);
+        assert_eq!(lf.packages.len(), 1);
+        let entry = lf.packages.get("foo@1.0.0").unwrap();
+        assert_eq!(entry.version, "1.0.0");
+        assert_eq!(entry.integrity, "sha256-foo-1.0.0");
+        assert_eq!(entry.package_type, "skill");
+        assert!(!entry.optional);
+    }
+
+    #[test]
+    fn test_build_lockfile_multiple_packages() {
+        let result = ResolutionResult {
+            packages: BTreeMap::from([
+                make_resolved("foo", "1.0.0"),
+                make_resolved("bar", "2.0.0"),
+            ]),
+        };
+        let lf = build_lockfile(&result);
+        assert_eq!(lf.packages.len(), 2);
+        assert!(lf.packages.contains_key("foo@1.0.0"));
+        assert!(lf.packages.contains_key("bar@2.0.0"));
+    }
+
+    #[test]
+    fn test_build_lockfile_scoped_package() {
+        let result = ResolutionResult {
+            packages: BTreeMap::from([make_resolved("@acme/tool", "3.0.0")]),
+        };
+        let lf = build_lockfile(&result);
+        assert_eq!(lf.packages.len(), 1);
+        assert!(lf.packages.contains_key("@acme/tool@3.0.0"));
+    }
 }

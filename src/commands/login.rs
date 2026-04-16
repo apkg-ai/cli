@@ -161,6 +161,18 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_tokens_mfa_takes_priority_over_tokens() {
+        let resp = make_response(Some("tok_abc"), Some("rt_def"), Some(true), Some("mfa_tok"));
+        let result = extract_tokens(resp).unwrap();
+        match result {
+            TokenOutcome::MfaRequired { mfa_token } => {
+                assert_eq!(mfa_token, "mfa_tok");
+            }
+            TokenOutcome::Tokens { .. } => panic!("expected MfaRequired variant"),
+        }
+    }
+
+    #[test]
     fn test_extract_tokens_mfa_missing_token() {
         let resp = make_response(None, None, Some(true), None);
         let err = extract_tokens(resp).unwrap_err();

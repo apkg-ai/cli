@@ -521,4 +521,206 @@ mod tests {
         assert_eq!(lf.packages.len(), 1);
         assert!(lf.packages.contains_key("@acme/tool@3.0.0"));
     }
+
+    // --- safe_dir_name ---
+
+    #[test]
+    fn test_safe_dir_name_simple() {
+        assert_eq!(safe_dir_name("foo"), "foo");
+    }
+
+    #[test]
+    fn test_safe_dir_name_scoped() {
+        assert_eq!(safe_dir_name("@org/pkg"), "@org/pkg");
+    }
+
+    // --- make_spinner ---
+
+    #[test]
+    fn test_make_spinner_creates() {
+        let pb = make_spinner();
+        pb.finish_and_clear();
+    }
+
+    // --- async tests for download_or_cache and run ---
+
+    use wiremock::matchers::{method, path_regex};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn setup_env(tmp: &std::path::Path) {
+        std::env::set_var("HOME", tmp);
+        std::env::set_var("APKG_TOKEN", "test-token");
+        std::env::set_var("APKG_CACHE_DIR", tmp.join(".cache").to_str().unwrap());
+    }
+
+    fn write_project_manifest(dir: &std::path::Path, deps: &[(&str, &str)]) {
+        let mut dep_map = serde_json::Map::new();
+        for &(name, range) in deps {
+            dep_map.insert(name.to_string(), serde_json::Value::String(range.to_string()));
+        }
+        let manifest = serde_json::json!({
+            "name": "@test/project",
+            "version": "1.0.0",
+            "type": "project",
+            "description": "Test project",
+            "license": "MIT",
+            "platform": ["claude"],
+            "dependencies": dep_map,
+        });
+        std::fs::write(dir.join("apkg.json"), serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    }
+
+    /// Create a minimal valid tarball for testing.
+    fn make_test_tarball() -> Vec<u8> {
+        let buf = Vec::new();
+        let enc = zstd::Encoder::new(buf, 1).unwrap();
+        let mut archive = tar::Builder::new(enc);
+        let content = b"test content";
+        let mut header = tar::Header::new_gnu();
+        header.set_size(content.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        archive.append_data(&mut header, "index.ts", &content[..]).unwrap();
+        let enc = archive.into_inner().unwrap();
+        enc.finish().unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_install_all_empty_deps() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        write_project_manifest(tmp.path(), &[]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let result = run(InstallOptions {
+            package: None,
+            registry: Some("http://localhost:1"),
+            setup_target: None,
+            frozen_lockfile: false,
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_install_all_frozen_no_lockfile() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        write_project_manifest(tmp.path(), &[("foo", "^1.0.0")]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        let result = run(InstallOptions {
+            package: None,
+            registry: Some(&server.uri()),
+            setup_target: None,
+            frozen_lockfile: true,
+        })
+        .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.to_lowercase().contains("lockfile"));
+    }
+
+    #[tokio::test]
+    async fn test_download_or_cache_from_network() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+
+        let tarball = make_test_tarball();
+        let expected_integrity = crate::util::integrity::sha256_integrity(&tarball);
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+/1\\.0\\.0/tarball"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(tarball.clone()))
+            .mount(&server)
+            .await;
+
+        let client = ApiClient::new(Some(&server.uri())).unwrap();
+        let install_dir = tmp.path().join("install_target");
+        let pb = make_spinner();
+
+        let result = download_or_cache(
+            &client,
+            "testpkg",
+            "1.0.0",
+            &expected_integrity,
+            &install_dir,
+            &pb,
+        )
+        .await;
+        pb.finish_and_clear();
+        assert!(result.is_ok());
+        // Verify extraction happened
+        assert!(install_dir.join("index.ts").exists());
+    }
+
+    #[tokio::test]
+    async fn test_download_or_cache_integrity_mismatch() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+
+        let tarball = make_test_tarball();
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+/1\\.0\\.0/tarball"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(tarball))
+            .mount(&server)
+            .await;
+
+        let client = ApiClient::new(Some(&server.uri())).unwrap();
+        let install_dir = tmp.path().join("install_target");
+        let pb = make_spinner();
+
+        let result = download_or_cache(
+            &client,
+            "testpkg",
+            "1.0.0",
+            "sha256-WRONG",
+            &install_dir,
+            &pb,
+        )
+        .await;
+        pb.finish_and_clear();
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.to_lowercase().contains("integrity"));
+    }
+
+    #[tokio::test]
+    async fn test_download_or_cache_uses_cache() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+
+        let tarball = make_test_tarball();
+        let expected_integrity = crate::util::integrity::sha256_integrity(&tarball);
+
+        // Pre-populate cache
+        cache::store("cached-pkg", "2.0.0", &tarball, &expected_integrity).unwrap();
+
+        // No mock server needed — should use cache
+        let client = ApiClient::new(Some("http://localhost:1")).unwrap();
+        let install_dir = tmp.path().join("install_target");
+        let pb = make_spinner();
+
+        let result = download_or_cache(
+            &client,
+            "cached-pkg",
+            "2.0.0",
+            &expected_integrity,
+            &install_dir,
+            &pb,
+        )
+        .await;
+        pb.finish_and_clear();
+        assert!(result.is_ok());
+        assert!(install_dir.join("index.ts").exists());
+    }
 }

@@ -30,3 +30,115 @@ pub async fn run(opts: DeprecateOptions<'_>) -> Result<(), AppError> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn setup_env(tmp: &std::path::Path) {
+        std::env::set_var("HOME", tmp);
+        std::env::set_var("APKG_TOKEN", "test-token");
+    }
+
+    #[tokio::test]
+    async fn test_deprecate_package_with_message() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/packages/mypkg"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "mypkg",
+                "versions": {},
+                "maintainers": [],
+                "distTags": {},
+                "deprecated": "Use v2 instead"
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(DeprecateOptions {
+            target: "mypkg",
+            message: Some("Use v2 instead"),
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_deprecate_version_with_message() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/packages/mypkg/1.0.0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "version": "1.0.0",
+                "deprecated": "Use v2"
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(DeprecateOptions {
+            target: "mypkg@1.0.0",
+            message: Some("Use v2"),
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_undeprecate_package() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/packages/mypkg"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "mypkg",
+                "versions": {},
+                "maintainers": [],
+                "distTags": {}
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(DeprecateOptions {
+            target: "mypkg",
+            message: None,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_undeprecate_version() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/packages/mypkg/1.0.0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "version": "1.0.0"
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(DeprecateOptions {
+            target: "mypkg@1.0.0",
+            message: None,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+}

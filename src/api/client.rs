@@ -549,3 +549,555 @@ async fn parse_json_response<T: serde::de::DeserializeOwned>(
 fn encode_package_name(name: &str) -> String {
     urlencoding::encode(name).to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path, path_regex};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    async fn make_test_client(server: &MockServer) -> ApiClient {
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("HOME", tmp.path());
+        std::env::set_var("APKG_TOKEN", "test-token-abc");
+        // Leak the TempDir so it stays alive for the duration
+        let client = ApiClient::new(Some(&server.uri())).unwrap();
+        std::mem::forget(tmp);
+        client
+    }
+
+    async fn make_unauthed_client(server: &MockServer) -> ApiClient {
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("HOME", tmp.path());
+        std::env::remove_var("APKG_TOKEN");
+        let client = ApiClient::new(Some(&server.uri())).unwrap();
+        std::mem::forget(tmp);
+        client
+    }
+
+    #[test]
+    fn test_encode_package_name_simple() {
+        assert_eq!(encode_package_name("my-pkg"), "my-pkg");
+    }
+
+    #[test]
+    fn test_encode_package_name_scoped() {
+        assert_eq!(encode_package_name("@scope/pkg"), "%40scope%2Fpkg");
+    }
+
+    #[test]
+    fn test_encode_package_name_special_chars() {
+        assert_eq!(encode_package_name("a b"), "a%20b");
+    }
+
+    #[tokio::test]
+    async fn test_url_with_registry_override() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        let client = make_test_client(&server).await;
+        let url = client.url("auth", "/auth/login");
+        assert!(url.starts_with(&server.uri()));
+        assert!(url.ends_with("/auth/login"));
+    }
+
+    #[tokio::test]
+    async fn test_auth_headers_with_token() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        let client = make_test_client(&server).await;
+        let headers = client.auth_headers().unwrap();
+        let auth = headers.get(AUTHORIZATION).unwrap().to_str().unwrap();
+        assert!(auth.starts_with("Bearer "));
+    }
+
+    #[tokio::test]
+    async fn test_auth_headers_without_token() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        let client = make_unauthed_client(&server).await;
+        let headers = client.auth_headers().unwrap();
+        assert!(headers.get(AUTHORIZATION).is_none());
+    }
+
+    #[tokio::test]
+    async fn test_require_auth_no_token() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        let client = make_unauthed_client(&server).await;
+        let result = client.require_auth_headers();
+        assert!(matches!(result, Err(AppError::AuthRequired)));
+    }
+
+    #[tokio::test]
+    async fn test_login_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/auth/login"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "accessToken": "tok_123",
+                "refreshToken": "rt_456",
+                "expiresIn": 3600,
+                "tokenType": "Bearer"
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client.login("user", "pass").await.unwrap();
+        assert_eq!(resp.access_token.as_deref(), Some("tok_123"));
+        assert!(!resp.requires_mfa());
+    }
+
+    #[tokio::test]
+    async fn test_login_mfa_required() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/auth/login"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "mfaRequired": true,
+                "mfaToken": "mfa_tok_789"
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client.login("user", "pass").await.unwrap();
+        assert!(resp.requires_mfa());
+        assert_eq!(resp.mfa_token.unwrap(), "mfa_tok_789");
+    }
+
+    #[tokio::test]
+    async fn test_mfa_challenge_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/auth/mfa/challenge"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "accessToken": "tok_mfa",
+                "refreshToken": "rt_mfa",
+                "expiresIn": 3600,
+                "tokenType": "Bearer"
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client.mfa_challenge("mfa_tok", "123456").await.unwrap();
+        assert_eq!(resp.access_token, "tok_mfa");
+    }
+
+    #[tokio::test]
+    async fn test_whoami_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/auth/whoami"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "username": "alice",
+                "email": "alice@example.com"
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client.whoami().await.unwrap();
+        assert_eq!(resp.username, "alice");
+        assert_eq!(resp.email, "alice@example.com");
+    }
+
+    #[tokio::test]
+    async fn test_whoami_requires_auth() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        let client = make_unauthed_client(&server).await;
+        let result = client.whoami().await;
+        assert!(matches!(result, Err(AppError::AuthRequired)));
+    }
+
+    #[tokio::test]
+    async fn test_get_package_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/%40scope%2Fpkg"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "@scope/pkg",
+                "versions": {},
+                "maintainers": [],
+                "distTags": {}
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let meta = client.get_package("@scope/pkg").await.unwrap();
+        assert_eq!(meta.name, "@scope/pkg");
+    }
+
+    #[tokio::test]
+    async fn test_get_package_not_found() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/nonexistent"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "error": { "code": "NOT_FOUND", "message": "Package not found" }
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let result = client.get_package("nonexistent").await;
+        assert!(matches!(result, Err(AppError::PackageNotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn test_download_tarball_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/mypkg/1.0.0/tarball"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(b"fake-tarball-bytes".to_vec())
+                    .insert_header("x-integrity", "sha256-abc123"),
+            )
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let (data, integrity) = client.download_tarball("mypkg", "1.0.0").await.unwrap();
+        assert_eq!(data, b"fake-tarball-bytes");
+        assert_eq!(integrity.unwrap(), "sha256-abc123");
+    }
+
+    #[tokio::test]
+    async fn test_download_tarball_not_found() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/missing/0.0.1/tarball"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "error": { "code": "NOT_FOUND", "message": "Not found" }
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let result = client.download_tarball("missing", "0.0.1").await;
+        assert!(matches!(result, Err(AppError::PackageNotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn test_search_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex("/search.*"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "results": [
+                    { "name": "@test/skill", "version": "1.0.0" }
+                ],
+                "total": 1
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client.search("test", 10, 0).await.unwrap();
+        assert_eq!(resp.total, 1);
+        assert_eq!(resp.results[0].name, "@test/skill");
+    }
+
+    #[tokio::test]
+    async fn test_publish_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path("/packages/%40scope%2Fpkg"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "@scope/pkg",
+                "version": "1.0.0",
+                "integrity": "sha256-xyz"
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client
+            .publish("@scope/pkg", r#"{"name":"@scope/pkg"}"#, vec![1, 2, 3])
+            .await
+            .unwrap();
+        assert_eq!(resp.name, "@scope/pkg");
+        assert_eq!(resp.version, "1.0.0");
+    }
+
+    #[tokio::test]
+    async fn test_register_key_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/auth/keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keyId": "key-001",
+                "name": "mykey",
+                "algorithm": "ed25519",
+                "createdAt": "2026-01-01T00:00:00Z"
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client.register_key("pubkey123", "mykey").await.unwrap();
+        assert_eq!(resp.key_id, "key-001");
+    }
+
+    #[tokio::test]
+    async fn test_list_keys_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/auth/keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keys": [{
+                    "keyId": "key-001",
+                    "name": "mykey",
+                    "algorithm": "ed25519",
+                    "status": "active",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }]
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client.list_keys().await.unwrap();
+        assert_eq!(resp.keys.len(), 1);
+        assert_eq!(resp.keys[0].key_id, "key-001");
+    }
+
+    #[tokio::test]
+    async fn test_revoke_key_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path_regex("/auth/keys/.+/revoke"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keyId": "key-001",
+                "status": "revoked",
+                "revokedAt": "2026-02-01T00:00:00Z"
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client.revoke_key("key-001", "compromised", None).await.unwrap();
+        assert_eq!(resp.status, "revoked");
+    }
+
+    #[tokio::test]
+    async fn test_rotate_key_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/auth/keys/rotate"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "newKeyId": "key-002",
+                "oldKeyId": "key-001",
+                "rotatedAt": "2026-02-01T00:00:00Z"
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client.rotate_key("key-001", "new-pub", "attestation").await.unwrap();
+        assert_eq!(resp.new_key_id, "key-002");
+    }
+
+    #[tokio::test]
+    async fn test_create_token_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/auth/tokens"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "tok-001",
+                "name": "ci-token",
+                "token": "apkg_abc123",
+                "scopes": ["publish"],
+                "expiresAt": "2027-01-01T00:00:00Z",
+                "createdAt": "2026-01-01T00:00:00Z"
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let scopes = vec!["publish".to_string()];
+        let resp = client.create_token("ci-token", &scopes, "365d", None).await.unwrap();
+        assert_eq!(resp.id, "tok-001");
+        assert_eq!(resp.token, "apkg_abc123");
+    }
+
+    #[tokio::test]
+    async fn test_list_tokens_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/auth/tokens"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tokens": [{
+                    "id": "tok-001",
+                    "name": "ci-token",
+                    "scopes": ["publish"],
+                    "expiresIn": "365d",
+                    "expiresAt": "2027-01-01T00:00:00Z",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }]
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client.list_tokens().await.unwrap();
+        assert_eq!(resp.tokens.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_revoke_token_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path_regex("/auth/tokens/.+"))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        client.revoke_token("tok-001").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_set_dist_tag_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path_regex("/packages/.+/dist-tags/.+"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tag": "latest",
+                "version": "1.0.0"
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client.set_dist_tag("mypkg", "latest", "1.0.0").await.unwrap();
+        assert_eq!(resp.tag, "latest");
+        assert_eq!(resp.version, "1.0.0");
+    }
+
+    #[tokio::test]
+    async fn test_remove_dist_tag_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path_regex("/packages/.+/dist-tags/.+"))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        client.remove_dist_tag("mypkg", "beta").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_deprecate_package_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/packages/mypkg"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "mypkg",
+                "versions": {},
+                "maintainers": [],
+                "distTags": {},
+                "deprecated": "This package is deprecated"
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client.deprecate_package("mypkg", Some("This package is deprecated")).await.unwrap();
+        assert_eq!(resp.name, "mypkg");
+    }
+
+    #[tokio::test]
+    async fn test_deprecate_version_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/packages/mypkg/1.0.0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "version": "1.0.0",
+                "deprecated": "Use v2"
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client.deprecate_version("mypkg", "1.0.0", Some("Use v2")).await.unwrap();
+        assert_eq!(resp.version, "1.0.0");
+    }
+
+    #[tokio::test]
+    async fn test_get_registry_signing_keys() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/registry/signing-keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "keys": [{
+                    "keyId": "rsk-001",
+                    "publicKey": "ed25519-pub",
+                    "algorithm": "ed25519",
+                    "status": "active",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "expiresAt": "2027-01-01T00:00:00Z"
+                }]
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client.get_registry_signing_keys().await.unwrap();
+        assert_eq!(resp.keys.len(), 1);
+        assert_eq!(resp.keys[0].key_id, "rsk-001");
+    }
+
+    #[tokio::test]
+    async fn test_get_provenance_some() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/mypkg/1.0.0/provenance"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "predicate": { "builderId": "github-actions" }
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client.get_provenance("mypkg", "1.0.0").await.unwrap();
+        assert!(resp.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_get_provenance_none() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/mypkg/1.0.0/provenance"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "error": { "code": "NOT_FOUND", "message": "Not found" }
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let resp = client.get_provenance("mypkg", "1.0.0").await.unwrap();
+        assert!(resp.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_login_failure_401() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/auth/login"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+                "error": { "code": "UNAUTHORIZED", "message": "Invalid credentials" }
+            })))
+            .mount(&server)
+            .await;
+        let client = make_test_client(&server).await;
+        let result = client.login("user", "wrong").await;
+        assert!(result.is_err());
+    }
+}

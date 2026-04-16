@@ -449,4 +449,302 @@ mod tests {
         let result = resolve_best_version(&meta, &req);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_read_installed_deps_with_deps() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg_dir = tmp.path().join("apkg_packages").join("mypkg");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("apkg.json"),
+            r#"{"name":"mypkg","version":"1.0.0","dependencies":{"foo":"^1.0.0","bar":"^2.0.0"}}"#,
+        )
+        .unwrap();
+        let deps = read_installed_deps(tmp.path(), "mypkg");
+        assert_eq!(deps.len(), 2);
+        assert_eq!(deps["foo"], "^1.0.0");
+        assert_eq!(deps["bar"], "^2.0.0");
+    }
+
+    #[test]
+    fn test_read_installed_deps_missing_manifest() {
+        let tmp = tempfile::tempdir().unwrap();
+        let deps = read_installed_deps(tmp.path(), "nonexistent");
+        assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn test_read_installed_deps_invalid_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg_dir = tmp.path().join("apkg_packages").join("badpkg");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(pkg_dir.join("apkg.json"), "not valid json").unwrap();
+        let deps = read_installed_deps(tmp.path(), "badpkg");
+        assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn test_read_installed_deps_no_dependencies_field() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg_dir = tmp.path().join("apkg_packages").join("nodeps");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("apkg.json"),
+            r#"{"name":"nodeps","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        let deps = read_installed_deps(tmp.path(), "nodeps");
+        assert!(deps.is_empty());
+    }
+
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn setup_env(tmp: &std::path::Path) {
+        std::env::set_var("HOME", tmp);
+        std::env::set_var("APKG_TOKEN", "test-token");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_from_lockfile() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+
+        let client = crate::api::client::ApiClient::new(Some(&server.uri())).unwrap();
+        let mut deps = BTreeMap::new();
+        deps.insert("lockedpkg".to_string(), "^1.0.0".to_string());
+
+        let mut lock_packages = BTreeMap::new();
+        lock_packages.insert(
+            "lockedpkg@1.0.5".to_string(),
+            lockfile::LockedPackage {
+                version: "1.0.5".to_string(),
+                resolved: "https://example.com/lockedpkg/1.0.5/tarball".to_string(),
+                integrity: "sha256-locked".to_string(),
+                package_type: "skill".to_string(),
+                dependencies: BTreeMap::new(),
+                peer_dependencies: BTreeMap::new(),
+                optional: false,
+            },
+        );
+        let lockfile = Lockfile {
+            lockfile_version: 1,
+            requires: true,
+            resolved: String::new(),
+            packages: lock_packages,
+        };
+
+        let pb = ProgressBar::hidden();
+        let result = resolve(&client, &deps, Some(&lockfile), &pb, tmp.path())
+            .await
+            .unwrap();
+        assert_eq!(result.packages.len(), 1);
+        assert_eq!(result.packages["lockedpkg"].version, "1.0.5");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_conflict_with_already_resolved() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+
+        // pkgA is resolved from lockfile at 1.0.0, then the deps also
+        // request pkgA@^2.0.0 which conflicts with the already-resolved 1.0.0
+        let client = crate::api::client::ApiClient::new(Some(&server.uri())).unwrap();
+        let mut deps = BTreeMap::new();
+        deps.insert("pkgA".to_string(), "^1.0.0".to_string());
+        // Second request for incompatible range:
+        deps.insert("pkgA".to_string(), "^1.0.0".to_string());
+
+        // Use lockfile to seed pkgA at 1.0.0 with a transitive dep that
+        // requests pkgA@^2.0.0 (creating a conflict in the second iteration)
+        let mut lock_packages = BTreeMap::new();
+        lock_packages.insert(
+            "pkgA@1.0.0".to_string(),
+            lockfile::LockedPackage {
+                version: "1.0.0".to_string(),
+                resolved: "https://x.com/a/tarball".to_string(),
+                integrity: "sha256-a".to_string(),
+                package_type: "skill".to_string(),
+                dependencies: {
+                    let mut d = BTreeMap::new();
+                    d.insert("pkgB".to_string(), "^1.0.0".to_string());
+                    d
+                },
+                peer_dependencies: BTreeMap::new(),
+                optional: false,
+            },
+        );
+        lock_packages.insert(
+            "pkgB@1.0.0".to_string(),
+            lockfile::LockedPackage {
+                version: "1.0.0".to_string(),
+                resolved: "https://x.com/b/tarball".to_string(),
+                integrity: "sha256-b".to_string(),
+                package_type: "skill".to_string(),
+                dependencies: {
+                    let mut d = BTreeMap::new();
+                    d.insert("pkgA".to_string(), "^2.0.0".to_string());
+                    d
+                },
+                peer_dependencies: BTreeMap::new(),
+                optional: false,
+            },
+        );
+        let lockfile = Lockfile {
+            lockfile_version: 1,
+            requires: true,
+            resolved: String::new(),
+            packages: lock_packages,
+        };
+        let pb = ProgressBar::hidden();
+
+        let result = resolve(&client, &deps, Some(&lockfile), &pb, tmp.path()).await;
+        assert!(matches!(result, Err(AppError::DependencyConflict(_))));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_lockfile_with_transitive_deps() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+
+        let client = crate::api::client::ApiClient::new(Some(&server.uri())).unwrap();
+        let mut deps = BTreeMap::new();
+        deps.insert("pkgA".to_string(), "^1.0.0".to_string());
+
+        // pkgA depends on pkgB, both in lockfile
+        let mut lock_packages = BTreeMap::new();
+        lock_packages.insert(
+            "pkgA@1.0.0".to_string(),
+            lockfile::LockedPackage {
+                version: "1.0.0".to_string(),
+                resolved: "https://x.com/a/tarball".to_string(),
+                integrity: "sha256-a".to_string(),
+                package_type: "skill".to_string(),
+                dependencies: {
+                    let mut d = BTreeMap::new();
+                    d.insert("pkgB".to_string(), "^1.0.0".to_string());
+                    d
+                },
+                peer_dependencies: BTreeMap::new(),
+                optional: false,
+            },
+        );
+        lock_packages.insert(
+            "pkgB@1.2.0".to_string(),
+            lockfile::LockedPackage {
+                version: "1.2.0".to_string(),
+                resolved: "https://x.com/b/tarball".to_string(),
+                integrity: "sha256-b".to_string(),
+                package_type: "skill".to_string(),
+                dependencies: BTreeMap::new(),
+                peer_dependencies: BTreeMap::new(),
+                optional: false,
+            },
+        );
+        let lockfile = Lockfile {
+            lockfile_version: 1,
+            requires: true,
+            resolved: String::new(),
+            packages: lock_packages,
+        };
+        let pb = ProgressBar::hidden();
+
+        let result = resolve(&client, &deps, Some(&lockfile), &pb, tmp.path())
+            .await
+            .unwrap();
+        assert_eq!(result.packages.len(), 2);
+        assert_eq!(result.packages["pkgA"].version, "1.0.0");
+        assert_eq!(result.packages["pkgB"].version, "1.2.0");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_package_not_found() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/nonexistent"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "error": { "code": "NOT_FOUND", "message": "Not found" }
+            })))
+            .mount(&server)
+            .await;
+
+        let client = crate::api::client::ApiClient::new(Some(&server.uri())).unwrap();
+        let mut deps = BTreeMap::new();
+        deps.insert("nonexistent".to_string(), "^1.0.0".to_string());
+        let pb = ProgressBar::hidden();
+
+        let result = resolve(&client, &deps, None, &pb, tmp.path()).await;
+        assert!(matches!(result, Err(AppError::PackageNotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_compatible_duplicate_request() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+
+        // pkgA (from lockfile at 1.0.0) is also requested as ^1.0.0 by pkgB
+        // This should succeed (compatible)
+        let client = crate::api::client::ApiClient::new(Some(&server.uri())).unwrap();
+        let mut deps = BTreeMap::new();
+        deps.insert("pkgA".to_string(), "^1.0.0".to_string());
+
+        let mut lock_packages = BTreeMap::new();
+        lock_packages.insert(
+            "pkgA@1.5.0".to_string(),
+            lockfile::LockedPackage {
+                version: "1.5.0".to_string(),
+                resolved: "https://x.com/a/tarball".to_string(),
+                integrity: "sha256-a".to_string(),
+                package_type: "skill".to_string(),
+                dependencies: {
+                    let mut d = BTreeMap::new();
+                    d.insert("pkgB".to_string(), "^1.0.0".to_string());
+                    d
+                },
+                peer_dependencies: BTreeMap::new(),
+                optional: false,
+            },
+        );
+        lock_packages.insert(
+            "pkgB@1.0.0".to_string(),
+            lockfile::LockedPackage {
+                version: "1.0.0".to_string(),
+                resolved: "https://x.com/b/tarball".to_string(),
+                integrity: "sha256-b".to_string(),
+                package_type: "skill".to_string(),
+                dependencies: {
+                    let mut d = BTreeMap::new();
+                    // pkgB requests pkgA@^1.0.0 — compatible with already-resolved 1.5.0
+                    d.insert("pkgA".to_string(), "^1.0.0".to_string());
+                    d
+                },
+                peer_dependencies: BTreeMap::new(),
+                optional: false,
+            },
+        );
+        let lockfile = Lockfile {
+            lockfile_version: 1,
+            requires: true,
+            resolved: String::new(),
+            packages: lock_packages,
+        };
+        let pb = ProgressBar::hidden();
+
+        let result = resolve(&client, &deps, Some(&lockfile), &pb, tmp.path())
+            .await
+            .unwrap();
+        assert_eq!(result.packages.len(), 2);
+        assert_eq!(result.packages["pkgA"].version, "1.5.0");
+    }
 }

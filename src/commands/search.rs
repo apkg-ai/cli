@@ -87,3 +87,136 @@ pub async fn run(opts: SearchOptions<'_>) -> Result<(), AppError> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path_regex};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn setup_env(tmp: &std::path::Path) {
+        std::env::set_var("HOME", tmp);
+        std::env::set_var("APKG_TOKEN", "test-token");
+    }
+
+    #[tokio::test]
+    async fn test_search_json_output() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex("/search.*"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "results": [
+                    {
+                        "name": "@test/skill",
+                        "version": "1.0.0",
+                        "description": "A test skill",
+                        "type": "skill",
+                        "platform": ["claude"]
+                    }
+                ],
+                "total": 1
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(SearchOptions {
+            query: "test",
+            limit: 10,
+            json: true,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_search_human_output() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex("/search.*"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "results": [
+                    {
+                        "name": "@test/skill",
+                        "version": "1.0.0",
+                        "description": "A cool skill",
+                        "type": "skill",
+                        "platform": ["claude", "cursor"]
+                    },
+                    {
+                        "name": "@test/agent",
+                        "description": "",
+                        "type": "agent"
+                    }
+                ],
+                "total": 2
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(SearchOptions {
+            query: "test",
+            limit: 10,
+            json: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_search_empty_results() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex("/search.*"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "results": [],
+                "total": 0
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(SearchOptions {
+            query: "nonexistent",
+            limit: 10,
+            json: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_search_single_result() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex("/search.*"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "results": [{ "name": "@test/one", "version": "0.1.0" }],
+                "total": 1
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(SearchOptions {
+            query: "one",
+            limit: 10,
+            json: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+        assert!(result.is_ok());
+    }
+}

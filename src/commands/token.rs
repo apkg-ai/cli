@@ -167,4 +167,168 @@ mod tests {
             _ => panic!("expected Revoke variant"),
         }
     }
+
+    use wiremock::matchers::{method, path, path_regex};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn setup_env(tmp: &std::path::Path) {
+        std::env::set_var("HOME", tmp);
+        std::env::set_var("APKG_TOKEN", "test-token");
+    }
+
+    #[tokio::test]
+    async fn test_create_token() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/auth/tokens"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "tok-001",
+                "name": "ci-token",
+                "token": "apkg_abc123",
+                "scopes": ["publish"],
+                "expiresAt": "2027-01-01T00:00:00Z",
+                "createdAt": "2026-01-01T00:00:00Z"
+            })))
+            .mount(&server)
+            .await;
+
+        let scopes = vec!["publish".to_string()];
+        let result = run(
+            TokenAction::Create {
+                name: "ci-token",
+                scopes: &scopes,
+                expires_in: "365d",
+                package_scope: None,
+            },
+            Some(&server.uri()),
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_list_tokens_json() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/auth/tokens"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tokens": [{
+                    "id": "tok-001",
+                    "name": "ci-token",
+                    "scopes": ["publish"],
+                    "expiresIn": "365d",
+                    "expiresAt": "2027-01-01T00:00:00Z",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }]
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(TokenAction::List { json: true }, Some(&server.uri())).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_list_tokens_human() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/auth/tokens"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tokens": [{
+                    "id": "tok-001-long-id-here",
+                    "name": "ci-token",
+                    "scopes": ["publish", "read"],
+                    "expiresIn": "365d",
+                    "lastUsed": "2026-03-01T00:00:00Z",
+                    "expiresAt": "2027-01-01T00:00:00Z",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }]
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(TokenAction::List { json: false }, Some(&server.uri())).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_list_tokens_empty() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/auth/tokens"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tokens": []
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(TokenAction::List { json: false }, Some(&server.uri())).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_revoke_token() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path_regex("/auth/tokens/.+"))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&server)
+            .await;
+
+        let result = run(
+            TokenAction::Revoke { id: "tok-001" },
+            Some(&server.uri()),
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_create_token_with_package_scope() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/auth/tokens"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "tok-002",
+                "name": "scoped-token",
+                "token": "apkg_scoped",
+                "scopes": ["publish"],
+                "packageScope": "@myorg",
+                "expiresAt": "2027-01-01T00:00:00Z",
+                "createdAt": "2026-01-01T00:00:00Z"
+            })))
+            .mount(&server)
+            .await;
+
+        let scopes = vec!["publish".to_string()];
+        let result = run(
+            TokenAction::Create {
+                name: "scoped-token",
+                scopes: &scopes,
+                expires_in: "365d",
+                package_scope: Some("@myorg"),
+            },
+            Some(&server.uri()),
+        )
+        .await;
+        assert!(result.is_ok());
+    }
 }

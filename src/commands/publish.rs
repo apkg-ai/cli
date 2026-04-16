@@ -99,3 +99,113 @@ pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn setup_env(tmp: &std::path::Path) {
+        std::env::set_var("HOME", tmp);
+        std::env::set_var("APKG_TOKEN", "test-token");
+    }
+
+    fn write_manifest(dir: &std::path::Path, name: &str, pkg_type: &str) {
+        let manifest = serde_json::json!({
+            "name": name,
+            "version": "1.0.0",
+            "type": pkg_type,
+            "description": "Test package",
+            "license": "MIT",
+            "platform": ["claude"]
+        });
+        std::fs::write(dir.join("apkg.json"), serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_publish_unpublishable_type() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        write_manifest(tmp.path(), "@user/proj", "project");
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        let result = run(Some(&server.uri())).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Cannot publish a project"));
+    }
+
+    #[tokio::test]
+    async fn test_publish_invalid_name() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        write_manifest(tmp.path(), "unscoped-name", "skill");
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        let result = run(Some(&server.uri())).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("must be scoped"));
+    }
+
+    #[tokio::test]
+    async fn test_publish_success() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        write_manifest(tmp.path(), "@user/my-skill", "skill");
+        // Create a source file so the tarball is non-empty
+        std::fs::write(tmp.path().join("index.ts"), "export default {};").unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path("/packages/%40user%2Fmy-skill"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "@user/my-skill",
+                "version": "1.0.0",
+                "integrity": "sha256-xyz"
+            })))
+            .mount(&server)
+            .await;
+
+        let result = run(Some(&server.uri())).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_publish_scope_mismatch_warning() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        // Create credentials with a different username than scope
+        let creds_dir = tmp.path().join(".apkg");
+        std::fs::create_dir_all(&creds_dir).unwrap();
+        std::fs::write(
+            creds_dir.join("credentials.json"),
+            r#"{"registry":"https://api.apkg.ai","accessToken":"tok","refreshToken":"rt","username":"alice"}"#,
+        ).unwrap();
+        write_manifest(tmp.path(), "@bob/my-skill", "skill");
+        std::fs::write(tmp.path().join("index.ts"), "export default {};").unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path("/packages/%40bob%2Fmy-skill"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "@bob/my-skill",
+                "version": "1.0.0"
+            })))
+            .mount(&server)
+            .await;
+
+        // Should succeed but print warning (we just verify no error)
+        let result = run(Some(&server.uri())).await;
+        assert!(result.is_ok());
+    }
+}

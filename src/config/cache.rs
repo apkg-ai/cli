@@ -207,18 +207,13 @@ pub fn verify() -> Result<CacheVerifyResult, AppError> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
     use super::*;
-
-    // Env vars are process-global — serialise all tests that touch APKG_CACHE_DIR.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn with_temp_cache<F>(f: F)
     where
         F: FnOnce(),
     {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let cache_path = tmp.path().join("cache");
         unsafe { std::env::set_var("APKG_CACHE_DIR", &cache_path) };
@@ -228,7 +223,7 @@ mod tests {
 
     #[test]
     fn test_cache_dir_default() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
         unsafe { std::env::remove_var("APKG_CACHE_DIR") };
         let dir = cache_dir().unwrap();
         assert!(dir.ends_with(".apkg/cache"));
@@ -236,7 +231,7 @@ mod tests {
 
     #[test]
     fn test_cache_dir_env_override() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let custom = tmp.path().join("my-cache");
         unsafe { std::env::set_var("APKG_CACHE_DIR", &custom) };

@@ -552,6 +552,12 @@ fn encode_package_name(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    // Tests acquire std::sync::Mutex ENV_LOCK and hold it across `.await`s that
+    // don't touch the locked state (mock HTTP servers). Each `#[tokio::test]`
+    // runs on a single-threaded runtime, so the classic deadlock mode (one
+    // worker holds the guard, another tries to acquire) cannot occur here.
+    #![allow(clippy::await_holding_lock)]
+
     use super::*;
     use wiremock::matchers::{method, path, path_regex};
     use wiremock::{Mock, MockServer, ResponseTemplate};

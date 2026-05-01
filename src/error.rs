@@ -127,4 +127,20 @@ mod tests {
             .to_string()
             .contains("timeout"));
     }
+
+    #[tokio::test]
+    async fn test_from_reqwest_error() {
+        // Provoke a real reqwest::Error by targeting an unroutable address.
+        let err = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(1))
+            .build()
+            .unwrap()
+            .get("http://127.0.0.1:1")
+            .send()
+            .await
+            .unwrap_err();
+        let app_err: AppError = err.into();
+        assert!(matches!(app_err, AppError::Network(_)));
+        assert!(app_err.to_string().starts_with("Network error"));
+    }
 }

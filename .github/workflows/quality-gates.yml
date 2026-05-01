@@ -57,6 +57,23 @@ jobs:
       - name: Run tests
         run: cargo test
 
+  coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Run unit-test coverage
+        run: cargo llvm-cov --bins --summary-only --fail-under-lines 85 --fail-under-regions 85 --fail-under-functions 85
+
   audit:
     runs-on: ubuntu-24.04
     steps:

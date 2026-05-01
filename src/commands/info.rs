@@ -150,6 +150,8 @@ pub async fn run(opts: InfoOptions<'_>) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::await_holding_lock)] // ENV_LOCK guard held across mock-server awaits; see src/api/client.rs tests block for rationale.
+
     use super::*;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};

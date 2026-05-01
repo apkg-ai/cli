@@ -32,7 +32,6 @@ jobs:
 
   clippy:
     runs-on: ubuntu-24.04
-    continue-on-error: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -43,7 +42,7 @@ jobs:
           components: clippy
 
       - name: Run clippy
-        run: cargo clippy --all-targets
+        run: cargo clippy --all-targets -- -D warnings
 
   test:
     runs-on: ubuntu-24.04

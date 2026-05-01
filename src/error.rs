@@ -123,6 +123,8 @@ mod tests {
             AppError::AuthRequired.to_string(),
             "Authentication required. Run `apkg login` first."
         );
-        assert!(AppError::Network("timeout".into()).to_string().contains("timeout"));
+        assert!(AppError::Network("timeout".into())
+            .to_string()
+            .contains("timeout"));
     }
 }

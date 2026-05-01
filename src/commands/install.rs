@@ -267,10 +267,7 @@ async fn download_or_cache_with_info(
 
 /// Merge resolution results into an existing lockfile, preserving entries
 /// not part of the current resolution. Used by `install_single` and `add`.
-pub(crate) fn merge_into_lockfile(
-    existing: &mut Lockfile,
-    result: &resolver::ResolutionResult,
-) {
+pub(crate) fn merge_into_lockfile(existing: &mut Lockfile, result: &resolver::ResolutionResult) {
     for (name, pkg) in &result.packages {
         let key = lockfile::lock_key(name, &pkg.version);
         let entry = LockedPackage {
@@ -348,7 +345,7 @@ mod tests {
 
     use super::*;
     use crate::config::lockfile::{LockedPackage, LOCKFILE_VERSION};
-    use crate::resolver::{ResolvedPackage, ResolutionResult};
+    use crate::resolver::{ResolutionResult, ResolvedPackage};
 
     fn make_resolved(name: &str, version: &str) -> (String, ResolvedPackage) {
         (
@@ -556,7 +553,10 @@ mod tests {
     fn write_project_manifest(dir: &std::path::Path, deps: &[(&str, &str)]) {
         let mut dep_map = serde_json::Map::new();
         for &(name, range) in deps {
-            dep_map.insert(name.to_string(), serde_json::Value::String(range.to_string()));
+            dep_map.insert(
+                name.to_string(),
+                serde_json::Value::String(range.to_string()),
+            );
         }
         let manifest = serde_json::json!({
             "name": "@test/project",
@@ -567,7 +567,11 @@ mod tests {
             "platform": ["claude"],
             "dependencies": dep_map,
         });
-        std::fs::write(dir.join("apkg.json"), serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+        std::fs::write(
+            dir.join("apkg.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
     }
 
     /// Create a minimal valid tarball for testing.
@@ -580,7 +584,9 @@ mod tests {
         header.set_size(content.len() as u64);
         header.set_mode(0o644);
         header.set_cksum();
-        archive.append_data(&mut header, "index.ts", &content[..]).unwrap();
+        archive
+            .append_data(&mut header, "index.ts", &content[..])
+            .unwrap();
         let enc = archive.into_inner().unwrap();
         enc.finish().unwrap()
     }

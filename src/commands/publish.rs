@@ -23,12 +23,10 @@ pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
     // Validate package name is scoped
     let re = Regex::new(r"^@[a-z0-9-]+/[a-z0-9]([a-z0-9._-]*[a-z0-9])?$").unwrap();
     if !re.is_match(&m.name) {
-        return Err(AppError::Other(
-            format!(
-                "Package name '{}' must be scoped: @username/name or @org/name",
-                m.name
-            ),
-        ));
+        return Err(AppError::Other(format!(
+            "Package name '{}' must be scoped: @username/name or @org/name",
+            m.name
+        )));
     }
 
     // Warn if scope doesn't match the logged-in user
@@ -120,7 +118,11 @@ mod tests {
             "license": "MIT",
             "platform": ["claude"]
         });
-        std::fs::write(dir.join("apkg.json"), serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+        std::fs::write(
+            dir.join("apkg.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
     }
 
     #[tokio::test]

@@ -108,11 +108,7 @@ mod tests {
 
     #[test]
     fn test_format_response_all_fields() {
-        let resp = make_response(
-            Some(true),
-            vec!["read"],
-            vec![("acme", "owner")],
-        );
+        let resp = make_response(Some(true), vec!["read"], vec![("acme", "owner")]);
         let pairs = format_response(&resp);
         assert_eq!(pairs.len(), 5);
         assert_eq!(pairs[0].0, "Username");

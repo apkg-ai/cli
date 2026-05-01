@@ -75,8 +75,14 @@ pub async fn run(opts: UpdateOptions<'_>) -> Result<(), AppError> {
     let pb = install::make_spinner();
     pb.set_message("Resolving dependencies...");
 
-    let result =
-        resolver::resolve(&client, &resolution_deps, filtered_lockfile.as_ref(), &pb, &cwd).await?;
+    let result = resolver::resolve(
+        &client,
+        &resolution_deps,
+        filtered_lockfile.as_ref(),
+        &pb,
+        &cwd,
+    )
+    .await?;
 
     pb.finish_and_clear();
 
@@ -171,9 +177,7 @@ pub async fn run(opts: UpdateOptions<'_>) -> Result<(), AppError> {
     // Always run setup for all resolved packages to ensure tool configs are in sync
     if let Some(ref target) = opts.setup_target {
         for name in result.packages.keys() {
-            let install_dir = cwd
-                .join("apkg_packages")
-                .join(install::safe_dir_name(name));
+            let install_dir = cwd.join("apkg_packages").join(install::safe_dir_name(name));
             let report = setup::run_setup(&setup::SetupContext {
                 project_root: cwd.clone(),
                 install_dir,
@@ -387,7 +391,6 @@ mod tests {
 
     // --- async tests for run() ---
 
-
     fn setup_env(tmp: &std::path::Path) {
         std::env::set_var("HOME", tmp);
         std::env::set_var("APKG_TOKEN", "test-token");
@@ -397,7 +400,10 @@ mod tests {
     fn write_project_manifest(dir: &std::path::Path, deps: &[(&str, &str)]) {
         let mut dep_map = serde_json::Map::new();
         for &(name, range) in deps {
-            dep_map.insert(name.to_string(), serde_json::Value::String(range.to_string()));
+            dep_map.insert(
+                name.to_string(),
+                serde_json::Value::String(range.to_string()),
+            );
         }
         let manifest = serde_json::json!({
             "name": "@test/project",
@@ -408,7 +414,11 @@ mod tests {
             "platform": ["claude"],
             "dependencies": dep_map,
         });
-        std::fs::write(dir.join("apkg.json"), serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+        std::fs::write(
+            dir.join("apkg.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
     }
 
     #[tokio::test]

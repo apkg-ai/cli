@@ -134,9 +134,7 @@ fn cleanup_cursor_setup(project_root: &Path, package_name: &str) {
 /// clean up the scope directory (.claude/skills/@acme/) if it is now empty.
 fn cleanup_empty_scope_dir(path: &Path, stop_at: &Path) {
     if let Some(parent) = path.parent() {
-        if parent != stop_at
-            && std::fs::read_dir(parent).is_ok_and(|mut d| d.next().is_none())
-        {
+        if parent != stop_at && std::fs::read_dir(parent).is_ok_and(|mut d| d.next().is_none()) {
             let _ = std::fs::remove_dir(parent);
         }
     }

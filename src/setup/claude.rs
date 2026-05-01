@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 
 use crate::config::manifest::PackageType;
 
-use super::{config_pkg_path, find_definition_files, package_short_name, resolve_system_prompt, PackageInfo};
+use super::{
+    config_pkg_path, find_definition_files, package_short_name, resolve_system_prompt, PackageInfo,
+};
 
 /// Generate and write Claude Code config files for the given package.
 ///
@@ -21,16 +23,17 @@ pub fn setup_claude(
     fs::create_dir_all(&target_dir)
         .map_err(|e| format!("Failed to create .claude/{type_dir}/: {e}"))?;
 
-    let require_frontmatter = matches!(
-        info.package_type,
-        PackageType::Skill | PackageType::Agent
-    );
+    let require_frontmatter = matches!(info.package_type, PackageType::Skill | PackageType::Agent);
     let md_files = find_definition_files(install_dir, require_frontmatter);
 
     let pkg_path = config_pkg_path(&info.name);
     let sub_dir = target_dir.join(&pkg_path);
-    fs::create_dir_all(&sub_dir)
-        .map_err(|e| format!("Failed to create .claude/{type_dir}/{}/: {e}", pkg_path.display()))?;
+    fs::create_dir_all(&sub_dir).map_err(|e| {
+        format!(
+            "Failed to create .claude/{type_dir}/{}/: {e}",
+            pkg_path.display()
+        )
+    })?;
 
     if md_files.is_empty() {
         // Fallback: generate a summary file (legacy behaviour for packages
@@ -393,10 +396,7 @@ mod tests {
         assert_eq!(paths.len(), 1);
         assert!(paths[0].exists());
         assert_eq!(paths[0].file_name().unwrap(), "my-command.md");
-        assert!(paths[0]
-            .parent()
-            .unwrap()
-            .ends_with("commands/my-command"));
+        assert!(paths[0].parent().unwrap().ends_with("commands/my-command"));
     }
 
     #[test]

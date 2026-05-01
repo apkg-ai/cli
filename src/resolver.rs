@@ -127,8 +127,15 @@ pub async fn resolve(
         if deps.is_empty() {
             // Download and extract to discover dependencies from apkg.json
             let install_dir = install_root.join("apkg_packages").join(&name);
-            computed_integrity =
-                download_and_extract(client, &name, &version_meta.version, &dist.integrity, &install_dir, pb).await?;
+            computed_integrity = download_and_extract(
+                client,
+                &name,
+                &version_meta.version,
+                &dist.integrity,
+                &install_dir,
+                pb,
+            )
+            .await?;
             deps = read_installed_deps(install_root, &name);
         } else {
             computed_integrity = dist.integrity.clone();

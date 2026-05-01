@@ -136,7 +136,9 @@ fn test_pack_with_manifest() {
         .current_dir(tmp.path())
         .assert()
         .success()
-        .stderr(predicate::str::contains("Packed test-package-0.1.0.tar.zst"))
+        .stderr(predicate::str::contains(
+            "Packed test-package-0.1.0.tar.zst",
+        ))
         .stdout(predicate::str::contains("sha256-"));
 
     assert!(tmp.path().join("test-package-0.1.0.tar.zst").exists());
@@ -1187,10 +1189,7 @@ fn test_cache_operations_lifecycle() {
 
 #[test]
 fn test_info_no_package() {
-    cmd()
-        .args(["info"])
-        .assert()
-        .failure();
+    cmd().args(["info"]).assert().failure();
 }
 
 // --- key operations ---
@@ -1265,7 +1264,10 @@ fn test_link_scoped_package() {
         .stderr(predicate::str::contains("Linked @myorg/my-lib"));
 
     let symlink_path = app_dir.path().join("apkg_packages/@myorg/my-lib");
-    assert!(symlink_path.symlink_metadata().is_ok(), "symlink should exist for scoped package");
+    assert!(
+        symlink_path.symlink_metadata().is_ok(),
+        "symlink should exist for scoped package"
+    );
 }
 
 #[test]

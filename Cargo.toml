@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2021"
 description = "Package manager for AI tooling — skills, agents, MCP servers, prompts, configs"
 license = "MIT"
+repository = "https://github.com/apkg-ai/cli"
+homepage = "https://github.com/apkg-ai/cli"
+documentation = "https://github.com/apkg-ai/cli"
+readme = "README.md"
+keywords = ["package-manager", "ai", "cli", "mcp", "skills"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

@@ -169,3 +169,275 @@ fn cleanup_empty_parents(path: &Path, stop_at: &Path) {
         current = parent.parent();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::manifest::{Manifest, PackageType};
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        match crate::test_utils::ENV_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    fn write_manifest(dir: &Path, name: &str) {
+        let m = Manifest {
+            name: name.to_string(),
+            version: "0.1.0".to_string(),
+            package_type: PackageType::Skill,
+            description: String::new(),
+            license: "MIT".to_string(),
+            readme: None,
+            keywords: None,
+            authors: None,
+            repository: None,
+            homepage: None,
+            platform: vec!["claude-code".to_string()],
+            dependencies: None,
+            dev_dependencies: None,
+            peer_dependencies: None,
+            scripts: None,
+            hook_permissions: None,
+        };
+        crate::config::manifest::save(dir, &m).unwrap();
+    }
+
+    /// Anchor CWD to `CARGO_MANIFEST_DIR` on drop so we never leave a stale
+    /// tempdir as the process CWD (which would poison ENV_LOCK for later tests).
+    struct CwdGuard;
+    impl Drop for CwdGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(env!("CARGO_MANIFEST_DIR"));
+        }
+    }
+
+    #[test]
+    fn test_run_link_register_writes_global_entry() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let pkg_dir = tmp.path().join("my-pkg");
+        fs::create_dir_all(&pkg_dir).unwrap();
+        write_manifest(&pkg_dir, "@test/my-pkg");
+
+        let _cwd = CwdGuard;
+        std::env::set_current_dir(&pkg_dir).unwrap();
+
+        run_link(&LinkAction::Register).unwrap();
+
+        let entry = links::lookup("@test/my-pkg").unwrap().expect("registered");
+        assert_eq!(
+            entry.path,
+            pkg_dir.canonicalize().unwrap().to_string_lossy()
+        );
+    }
+
+    #[test]
+    fn test_run_unlink_unregister_success() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let pkg_dir = tmp.path().join("my-pkg");
+        fs::create_dir_all(&pkg_dir).unwrap();
+        write_manifest(&pkg_dir, "@test/my-pkg");
+        links::register("@test/my-pkg", &pkg_dir.canonicalize().unwrap()).unwrap();
+
+        let _cwd = CwdGuard;
+        std::env::set_current_dir(&pkg_dir).unwrap();
+
+        run_unlink(&UnlinkAction::Unregister).unwrap();
+
+        assert!(links::lookup("@test/my-pkg").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_run_unlink_unregister_when_not_registered() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let pkg_dir = tmp.path().join("my-pkg");
+        fs::create_dir_all(&pkg_dir).unwrap();
+        write_manifest(&pkg_dir, "@test/my-pkg");
+
+        let _cwd = CwdGuard;
+        std::env::set_current_dir(&pkg_dir).unwrap();
+
+        // Warn branch — still Ok.
+        run_unlink(&UnlinkAction::Unregister).unwrap();
+    }
+
+    #[test]
+    fn test_run_link_target_by_relative_path() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let consumer = tmp.path().join("consumer");
+        let source = tmp.path().join("source");
+        fs::create_dir_all(&consumer).unwrap();
+        fs::create_dir_all(&source).unwrap();
+        write_manifest(&source, "@test/source-pkg");
+
+        let _cwd = CwdGuard;
+        std::env::set_current_dir(&consumer).unwrap();
+
+        run_link(&LinkAction::LinkTarget {
+            target: "../source",
+        })
+        .unwrap();
+
+        let link = consumer.join("apkg_packages/@test/source-pkg");
+        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+    }
+
+    #[test]
+    fn test_run_link_target_by_registered_name() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let source = tmp.path().join("source");
+        fs::create_dir_all(&source).unwrap();
+        write_manifest(&source, "@test/source-pkg");
+        links::register("@test/source-pkg", &source.canonicalize().unwrap()).unwrap();
+
+        let consumer = tmp.path().join("consumer");
+        fs::create_dir_all(&consumer).unwrap();
+
+        let _cwd = CwdGuard;
+        std::env::set_current_dir(&consumer).unwrap();
+
+        run_link(&LinkAction::LinkTarget {
+            target: "@test/source-pkg",
+        })
+        .unwrap();
+
+        let link = consumer.join("apkg_packages/@test/source-pkg");
+        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+    }
+
+    #[test]
+    fn test_run_link_target_relinks_existing_symlink() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let consumer = tmp.path().join("consumer");
+        let source_a = tmp.path().join("source-a");
+        let source_b = tmp.path().join("source-b");
+        fs::create_dir_all(&consumer).unwrap();
+        fs::create_dir_all(&source_a).unwrap();
+        fs::create_dir_all(&source_b).unwrap();
+        write_manifest(&source_a, "@test/pkg");
+        write_manifest(&source_b, "@test/pkg");
+
+        let _cwd = CwdGuard;
+        std::env::set_current_dir(&consumer).unwrap();
+
+        run_link(&LinkAction::LinkTarget {
+            target: "../source-a",
+        })
+        .unwrap();
+        // Second call must replace, not error on existing symlink.
+        run_link(&LinkAction::LinkTarget {
+            target: "../source-b",
+        })
+        .unwrap();
+
+        let link = consumer.join("apkg_packages/@test/pkg");
+        let resolved = link.canonicalize().unwrap();
+        assert_eq!(resolved, source_b.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn test_run_link_target_missing_path_errors() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let consumer = tmp.path().join("consumer");
+        fs::create_dir_all(&consumer).unwrap();
+
+        let _cwd = CwdGuard;
+        std::env::set_current_dir(&consumer).unwrap();
+
+        // Absolute path that doesn't exist is treated as a path (starts with '/').
+        let err = run_link(&LinkAction::LinkTarget {
+            target: "/definitely/nonexistent/path",
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("Path does not exist"));
+    }
+
+    #[test]
+    fn test_run_link_target_unregistered_name_errors() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let consumer = tmp.path().join("consumer");
+        fs::create_dir_all(&consumer).unwrap();
+
+        let _cwd = CwdGuard;
+        std::env::set_current_dir(&consumer).unwrap();
+
+        let err = run_link(&LinkAction::LinkTarget {
+            target: "@nope/missing",
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("not registered globally"));
+    }
+
+    #[test]
+    fn test_run_unlink_package_removes_symlink_and_empty_parent() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let consumer = tmp.path().join("consumer");
+        let source = tmp.path().join("source");
+        fs::create_dir_all(&consumer).unwrap();
+        fs::create_dir_all(&source).unwrap();
+        write_manifest(&source, "@test/pkg");
+
+        let _cwd = CwdGuard;
+        std::env::set_current_dir(&consumer).unwrap();
+        run_link(&LinkAction::LinkTarget {
+            target: "../source",
+        })
+        .unwrap();
+
+        run_unlink(&UnlinkAction::UnlinkPackage {
+            package: "@test/pkg",
+        })
+        .unwrap();
+
+        // Symlink is gone AND the @test scope dir is cleaned up (empty parent).
+        assert!(!consumer.join("apkg_packages/@test/pkg").exists());
+        assert!(!consumer.join("apkg_packages/@test").exists());
+    }
+
+    #[test]
+    fn test_run_unlink_package_errors_when_not_linked() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let consumer = tmp.path().join("consumer");
+        fs::create_dir_all(&consumer).unwrap();
+
+        let _cwd = CwdGuard;
+        std::env::set_current_dir(&consumer).unwrap();
+
+        let err = run_unlink(&UnlinkAction::UnlinkPackage {
+            package: "@test/pkg",
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("is not a linked package"));
+    }
+}

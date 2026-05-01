@@ -172,4 +172,114 @@ mod tests {
         let result = extract_tarball(bad_data, tmp.path());
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_should_ignore_returns_false_when_no_patterns_match() {
+        let patterns = vec!["never-match/**".to_string()];
+        assert!(!should_ignore("src/main.rs", &patterns));
+    }
+
+    #[test]
+    fn test_write_tarball_persists_bytes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("package.tar.zst");
+        let payload = b"zstd-bytes";
+
+        write_tarball(&path, payload).unwrap();
+
+        let read_back = fs::read(&path).unwrap();
+        assert_eq!(read_back, payload);
+    }
+
+    #[test]
+    fn test_load_ignore_patterns_reads_custom_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        fs::write(
+            dir.join(".apkgignore"),
+            "# a comment\nsecrets/**\n\n   \n*.log\n",
+        )
+        .unwrap();
+
+        let patterns = load_ignore_patterns(dir);
+
+        // Comment and blank lines stripped; custom patterns kept.
+        assert_eq!(
+            patterns,
+            vec!["secrets/**".to_string(), "*.log".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_load_ignore_patterns_falls_back_to_defaults() {
+        let tmp = tempfile::tempdir().unwrap();
+        let patterns = load_ignore_patterns(tmp.path());
+        assert!(patterns.iter().any(|p| p == ".git/**"));
+        assert!(patterns.iter().any(|p| p == "target/**"));
+    }
+
+    #[test]
+    fn test_create_tarball_respects_custom_ignore() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+
+        fs::write(dir.join(".apkgignore"), "secret.txt\n").unwrap();
+        fs::write(dir.join("apkg.json"), r#"{"name":"test"}"#).unwrap();
+        fs::write(dir.join("secret.txt"), "should-not-ship").unwrap();
+
+        let tarball = create_tarball(dir).unwrap();
+
+        let extract_dir = tmp.path().join("extracted");
+        extract_tarball(&tarball, &extract_dir).unwrap();
+        assert!(extract_dir.join("apkg.json").exists());
+        assert!(!extract_dir.join("secret.txt").exists());
+    }
+
+    #[test]
+    fn test_create_tarball_preserves_nested_structure() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+
+        fs::create_dir_all(dir.join("a/b/c")).unwrap();
+        fs::write(dir.join("a/b/c/leaf.txt"), "deep").unwrap();
+        fs::write(dir.join("a/top.txt"), "shallow").unwrap();
+
+        let tarball = create_tarball(dir).unwrap();
+
+        let extract_dir = tmp.path().join("extracted");
+        extract_tarball(&tarball, &extract_dir).unwrap();
+        assert_eq!(
+            fs::read_to_string(extract_dir.join("a/b/c/leaf.txt")).unwrap(),
+            "deep"
+        );
+        assert_eq!(
+            fs::read_to_string(extract_dir.join("a/top.txt")).unwrap(),
+            "shallow"
+        );
+    }
+
+    #[test]
+    fn test_create_tarball_errors_on_missing_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("does-not-exist");
+        let result = create_tarball(&missing);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_tarball_excludes_default_git_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+
+        fs::create_dir_all(dir.join(".git")).unwrap();
+        fs::write(dir.join(".git/config"), "git-state").unwrap();
+        fs::write(dir.join("apkg.json"), r#"{"name":"test"}"#).unwrap();
+
+        let tarball = create_tarball(dir).unwrap();
+
+        let extract_dir = tmp.path().join("extracted");
+        extract_tarball(&tarball, &extract_dir).unwrap();
+        assert!(extract_dir.join("apkg.json").exists());
+        assert!(!extract_dir.join(".git").exists());
+    }
 }

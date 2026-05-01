@@ -10,3 +10,46 @@ pub fn run() -> Result<(), AppError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::credentials::Credentials;
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        match crate::test_utils::ENV_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    #[test]
+    fn test_run_when_not_logged_in() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        run().unwrap();
+        // No credentials file existed and none created.
+        assert!(!tmp.path().join(".apkg").join("credentials.json").exists());
+    }
+
+    #[test]
+    fn test_run_removes_existing_credentials() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        credentials::save(&Credentials {
+            registry: "https://registry.apkg.ai/api/v1".to_string(),
+            access_token: "tok".to_string(),
+            refresh_token: "rt".to_string(),
+            username: "user".to_string(),
+        })
+        .unwrap();
+
+        run().unwrap();
+
+        assert!(!tmp.path().join(".apkg").join("credentials.json").exists());
+    }
+}

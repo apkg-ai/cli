@@ -229,6 +229,9 @@ enum Commands {
     /// Add apkg to your shell PATH
     AddToPath,
 
+    /// Check whether a newer version of the CLI is available
+    CheckUpdate,
+
     /// Verify signatures and integrity of installed packages
     Verify {
         /// Package name. Omit to verify all installed packages.
@@ -688,6 +691,7 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             })
             .await
         }
+        Commands::CheckUpdate => commands::check_update::run().await,
         Commands::Completions { .. } | Commands::AddToPath => unreachable!(),
         Commands::Verify {
             ref package,

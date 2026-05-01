@@ -174,4 +174,97 @@ mod tests {
             assert!(!e.is_empty());
         }
     }
+
+    /// Save/restore a process-global env var for the duration of a test. The
+    /// `ENV_LOCK` serializes these tests with everything else that touches
+    /// `HOME`, `PATH`, or `CWD`.
+    struct EnvVarGuard {
+        key: &'static str,
+        original: Option<std::ffi::OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let original = std::env::var_os(key);
+            unsafe { std::env::set_var(key, value) };
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.original {
+                    Some(v) => std::env::set_var(self.key, v),
+                    None => std::env::remove_var(self.key),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_remote_url_returns_none_when_git_missing() {
+        let _lock = match crate::test_utils::ENV_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let _path = EnvVarGuard::set("PATH", "");
+
+        assert!(get_remote_url().is_none());
+    }
+
+    #[test]
+    fn test_get_user_name_returns_none_when_git_missing() {
+        let _lock = match crate::test_utils::ENV_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let _path = EnvVarGuard::set("PATH", "");
+
+        assert!(get_user_name().is_none());
+    }
+
+    #[test]
+    fn test_get_user_email_returns_none_when_git_missing() {
+        let _lock = match crate::test_utils::ENV_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let _path = EnvVarGuard::set("PATH", "");
+
+        assert!(get_user_email().is_none());
+    }
+
+    #[test]
+    fn test_get_remote_url_returns_none_outside_git_repo() {
+        // Poisoning can happen if another test (not using ENV_LOCK) dropped a
+        // tempdir that was the CWD. We only need exclusive access for the
+        // duration of our own CWD change, so treat poison as acquirable.
+        let _lock = match crate::test_utils::ENV_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        // Anchor the restore to a directory we know exists, not the (possibly
+        // stale) CWD left behind by an earlier test.
+        let anchor = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let result = get_remote_url();
+
+        std::env::set_current_dir(&anchor).unwrap();
+        // Outside a git repo, `git remote get-url origin` exits non-zero.
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_get_repository_url_returns_none_when_git_missing() {
+        let _lock = match crate::test_utils::ENV_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let _path = EnvVarGuard::set("PATH", "");
+
+        assert!(get_repository_url().is_none());
+    }
 }

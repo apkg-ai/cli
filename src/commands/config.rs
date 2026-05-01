@@ -130,4 +130,104 @@ mod tests {
         });
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_run_set_persists_value() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        run(ConfigAction::Set {
+            key: "registry",
+            value: "https://example.test/api/v1",
+        })
+        .unwrap();
+
+        let settings = Settings::load().unwrap();
+        assert_eq!(
+            settings.get("registry"),
+            Some("https://example.test/api/v1")
+        );
+    }
+
+    #[test]
+    fn test_run_get_returns_ok_when_set() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        run(ConfigAction::Set {
+            key: "registry",
+            value: "https://example.test/api/v1",
+        })
+        .unwrap();
+
+        run(ConfigAction::Get { key: "registry" }).unwrap();
+    }
+
+    #[test]
+    fn test_run_get_errors_when_unset() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let err = run(ConfigAction::Get { key: "registry" }).unwrap_err();
+        assert!(err.to_string().contains("Config key not set"));
+    }
+
+    #[test]
+    fn test_run_list_empty_settings() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        run(ConfigAction::List).unwrap();
+    }
+
+    #[test]
+    fn test_run_list_with_entries() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        run(ConfigAction::Set {
+            key: "registry",
+            value: "https://example.test/api/v1",
+        })
+        .unwrap();
+        run(ConfigAction::Set {
+            key: "services.auth",
+            value: "https://auth.example.test",
+        })
+        .unwrap();
+
+        run(ConfigAction::List).unwrap();
+    }
+
+    #[test]
+    fn test_run_delete_removes_value() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        run(ConfigAction::Set {
+            key: "registry",
+            value: "https://example.test/api/v1",
+        })
+        .unwrap();
+        run(ConfigAction::Delete { key: "registry" }).unwrap();
+
+        let settings = Settings::load().unwrap();
+        assert_eq!(settings.get("registry"), None);
+    }
+
+    #[test]
+    fn test_run_delete_errors_when_unset() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let err = run(ConfigAction::Delete { key: "registry" }).unwrap_err();
+        assert!(err.to_string().contains("Config key not set"));
+    }
 }

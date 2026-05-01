@@ -1,6 +1,7 @@
 pub mod add;
 pub mod add_to_path;
 pub mod cache;
+pub mod check_update;
 pub mod config;
 pub mod deprecate;
 pub mod dist_tag;

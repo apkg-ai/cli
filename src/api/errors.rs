@@ -90,7 +90,8 @@ mod tests {
 
     #[test]
     fn test_format_api_error_401() {
-        let body = r#"{"error":{"code":"UNAUTHORIZED","message":"Invalid credentials","details":[]}}"#;
+        let body =
+            r#"{"error":{"code":"UNAUTHORIZED","message":"Invalid credentials","details":[]}}"#;
         let err = format_api_error(401, body);
         match err {
             AppError::AuthFailed(msg) => assert!(msg.contains("Invalid credentials")),

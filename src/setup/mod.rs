@@ -203,7 +203,6 @@ pub fn package_short_name(name: &str) -> &str {
     name.rsplit('/').next().unwrap_or(name)
 }
 
-
 /// Find `.md` files in `install_dir` that contain YAML frontmatter and are
 /// likely agent/skill definitions (not documentation).
 pub(crate) fn find_definition_files(install_dir: &Path, require_frontmatter: bool) -> Vec<PathBuf> {
@@ -378,18 +377,11 @@ pub fn run_setup(ctx: &SetupContext) -> SetupReport {
 
     for &tool in &tools {
         let result = match tool {
-            Tool::ClaudeCode => {
-                claude::setup_claude(&ctx.project_root, &ctx.install_dir, &info)
-            }
-            Tool::Cursor => {
-                cursor::setup_cursor(&ctx.project_root, &ctx.install_dir, &info)
-            }
-            Tool::Codex => {
-                codex::setup_codex(&ctx.project_root, &ctx.install_dir, &info)
-            }
-            // TODO: re-enable when ready
-            // Tool::Windsurf => windsurf::setup_windsurf(..),
-            // Tool::Kiro => kiro::setup_kiro(..),
+            Tool::ClaudeCode => claude::setup_claude(&ctx.project_root, &ctx.install_dir, &info),
+            Tool::Cursor => cursor::setup_cursor(&ctx.project_root, &ctx.install_dir, &info),
+            Tool::Codex => codex::setup_codex(&ctx.project_root, &ctx.install_dir, &info), // TODO: re-enable when ready
+                                                                                           // Tool::Windsurf => windsurf::setup_windsurf(..),
+                                                                                           // Tool::Kiro => kiro::setup_kiro(..),
         };
         match result {
             Ok(paths) => {
@@ -420,10 +412,7 @@ pub fn run_setup(ctx: &SetupContext) -> SetupReport {
 /// 2. Claude Code is among the active tools
 /// 3. `AGENTS.md` exists in `project_root`
 /// 4. `CLAUDE.md` does not exist in `project_root` (neither as file nor symlink)
-pub fn maybe_create_claude_md_symlink(
-    project_root: &Path,
-    tools: &[Tool],
-) -> Option<SetupAction> {
+pub fn maybe_create_claude_md_symlink(project_root: &Path, tools: &[Tool]) -> Option<SetupAction> {
     let enabled = Settings::load()
         .map(|s| s.symlink_claude_md_enabled())
         .unwrap_or(true);
@@ -568,7 +557,6 @@ mod tests {
     fn test_package_short_name_nested() {
         assert_eq!(package_short_name("@org/sub/name"), "name");
     }
-
 
     #[test]
     fn test_detect_tools_none() {
@@ -738,11 +726,7 @@ mod tests {
             "license": "MIT"
         }"#;
         fs::write(install_dir.join("apkg.json"), json).unwrap();
-        fs::write(
-            install_dir.join("audit.md"),
-            "Run a comprehensive audit.",
-        )
-        .unwrap();
+        fs::write(install_dir.join("audit.md"), "Run a comprehensive audit.").unwrap();
 
         let report = run_setup(&SetupContext {
             project_root: tmp.path().to_path_buf(),
@@ -1010,10 +994,7 @@ mod tests {
         fs::create_dir(tmp.path().join(".claude")).unwrap();
         fs::create_dir(tmp.path().join(".codex")).unwrap();
         let tools = detect_tools(tmp.path());
-        assert_eq!(
-            tools,
-            vec![Tool::Cursor, Tool::ClaudeCode, Tool::Codex]
-        );
+        assert_eq!(tools, vec![Tool::Cursor, Tool::ClaudeCode, Tool::Codex]);
     }
 
     #[test]
@@ -1047,7 +1028,10 @@ mod tests {
         let pairs = parse_frontmatter(content);
         assert_eq!(pairs.len(), 3);
         assert_eq!(pairs[0], ("name".to_string(), "my-agent".to_string()));
-        assert_eq!(pairs[1], ("description".to_string(), "A test agent".to_string()));
+        assert_eq!(
+            pairs[1],
+            ("description".to_string(), "A test agent".to_string())
+        );
         assert_eq!(pairs[2], ("model".to_string(), "gpt-4o".to_string()));
     }
 
@@ -1079,7 +1063,10 @@ mod tests {
         fs::write(tmp.path().join("notes.md"), "No frontmatter").unwrap();
         let files = find_definition_files(tmp.path(), true);
         assert_eq!(files.len(), 2);
-        let names: Vec<_> = files.iter().map(|f| f.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        let names: Vec<_> = files
+            .iter()
+            .map(|f| f.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
         assert!(names.contains(&"agent.md".to_string()));
         assert!(names.contains(&"README.md".to_string()));
     }
@@ -1132,7 +1119,11 @@ mod tests {
             assert!(result.is_some());
 
             let claude_md = tmp.path().join("CLAUDE.md");
-            assert!(claude_md.symlink_metadata().unwrap().file_type().is_symlink());
+            assert!(claude_md
+                .symlink_metadata()
+                .unwrap()
+                .file_type()
+                .is_symlink());
             assert_eq!(fs::read_link(&claude_md).unwrap(), Path::new("AGENTS.md"));
         });
     }
@@ -1177,7 +1168,10 @@ mod tests {
             let result = maybe_create_claude_md_symlink(tmp.path(), &tools);
             assert!(result.is_none());
             // Original file untouched
-            assert_eq!(fs::read_to_string(tmp.path().join("CLAUDE.md")).unwrap(), "existing content");
+            assert_eq!(
+                fs::read_to_string(tmp.path().join("CLAUDE.md")).unwrap(),
+                "existing content"
+            );
         });
     }
 
@@ -1216,7 +1210,13 @@ mod tests {
 
         maybe_cleanup_claude_md_symlink(tmp.path());
         // Symlink should still exist
-        assert!(tmp.path().join("CLAUDE.md").symlink_metadata().unwrap().file_type().is_symlink());
+        assert!(tmp
+            .path()
+            .join("CLAUDE.md")
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink());
     }
 
     #[cfg(unix)]
@@ -1228,7 +1228,10 @@ mod tests {
         maybe_cleanup_claude_md_symlink(tmp.path());
         // Regular file should still exist
         assert!(tmp.path().join("CLAUDE.md").exists());
-        assert_eq!(fs::read_to_string(tmp.path().join("CLAUDE.md")).unwrap(), "regular file");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("CLAUDE.md")).unwrap(),
+            "regular file"
+        );
     }
 
     #[cfg(unix)]
@@ -1240,6 +1243,12 @@ mod tests {
 
         maybe_cleanup_claude_md_symlink(tmp.path());
         // Symlink to a different target should be untouched
-        assert!(tmp.path().join("CLAUDE.md").symlink_metadata().unwrap().file_type().is_symlink());
+        assert!(tmp
+            .path()
+            .join("CLAUDE.md")
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink());
     }
 }

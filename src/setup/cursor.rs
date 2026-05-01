@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 
 use crate::config::manifest::PackageType;
 
-use super::{config_pkg_path, find_definition_files, package_short_name, resolve_system_prompt, strip_frontmatter, PackageInfo};
+use super::{
+    config_pkg_path, find_definition_files, package_short_name, resolve_system_prompt,
+    strip_frontmatter, PackageInfo,
+};
 
 /// Generate and write Cursor config files for the given package.
 ///
@@ -40,12 +43,13 @@ fn setup_skill(
     info: &PackageInfo,
 ) -> Result<Vec<PathBuf>, String> {
     let pkg_path = config_pkg_path(&info.name);
-    let skill_dir = project_root
-        .join(".cursor")
-        .join("skills")
-        .join(&pkg_path);
-    fs::create_dir_all(&skill_dir)
-        .map_err(|e| format!("Failed to create .cursor/skills/{}/: {e}", pkg_path.display()))?;
+    let skill_dir = project_root.join(".cursor").join("skills").join(&pkg_path);
+    fs::create_dir_all(&skill_dir).map_err(|e| {
+        format!(
+            "Failed to create .cursor/skills/{}/: {e}",
+            pkg_path.display()
+        )
+    })?;
 
     let md_files = find_definition_files(install_dir, true);
     let skill_path = skill_dir.join("SKILL.md");
@@ -71,8 +75,7 @@ fn setup_skill(
     // Additional definition files go to references/.
     if md_files.len() > 1 {
         let refs_dir = skill_dir.join("references");
-        fs::create_dir_all(&refs_dir)
-            .map_err(|e| format!("Failed to create references/: {e}"))?;
+        fs::create_dir_all(&refs_dir).map_err(|e| format!("Failed to create references/: {e}"))?;
         for src in &md_files[1..] {
             let file_name = src
                 .file_name()
@@ -80,7 +83,11 @@ fn setup_skill(
                 .unwrap_or_default();
             let dest = refs_dir.join(&file_name);
             fs::copy(src, &dest).map_err(|e| {
-                format!("Failed to copy {} to {}: {e}", src.display(), dest.display())
+                format!(
+                    "Failed to copy {} to {}: {e}",
+                    src.display(),
+                    dest.display()
+                )
             })?;
             created.push(dest);
         }
@@ -142,7 +149,6 @@ fn wrap_skill_frontmatter(info: &PackageInfo, frontmatter_name: &str, content: &
     format!("{header}{body}")
 }
 
-
 // ---------------------------------------------------------------------------
 // Agents — .cursor/agents/{stem}/ (.md with name/description/model frontmatter)
 // ---------------------------------------------------------------------------
@@ -153,12 +159,13 @@ fn setup_agent(
     info: &PackageInfo,
 ) -> Result<Vec<PathBuf>, String> {
     let pkg_path = config_pkg_path(&info.name);
-    let agent_dir = project_root
-        .join(".cursor")
-        .join("agents")
-        .join(&pkg_path);
-    fs::create_dir_all(&agent_dir)
-        .map_err(|e| format!("Failed to create .cursor/agents/{}/: {e}", pkg_path.display()))?;
+    let agent_dir = project_root.join(".cursor").join("agents").join(&pkg_path);
+    fs::create_dir_all(&agent_dir).map_err(|e| {
+        format!(
+            "Failed to create .cursor/agents/{}/: {e}",
+            pkg_path.display()
+        )
+    })?;
 
     let md_files = find_definition_files(install_dir, true);
 
@@ -179,7 +186,11 @@ fn setup_agent(
             .unwrap_or_default();
         let dest = agent_dir.join(&file_name);
         fs::copy(src, &dest).map_err(|e| {
-            format!("Failed to copy {} to {}: {e}", src.display(), dest.display())
+            format!(
+                "Failed to copy {} to {}: {e}",
+                src.display(),
+                dest.display()
+            )
         })?;
         created.push(dest);
     }
@@ -257,8 +268,12 @@ fn setup_command(
         .join(".cursor")
         .join("commands")
         .join(&pkg_path);
-    fs::create_dir_all(&cmd_dir)
-        .map_err(|e| format!("Failed to create .cursor/commands/{}/: {e}", pkg_path.display()))?;
+    fs::create_dir_all(&cmd_dir).map_err(|e| {
+        format!(
+            "Failed to create .cursor/commands/{}/: {e}",
+            pkg_path.display()
+        )
+    })?;
 
     let md_files = find_definition_files(install_dir, false);
 
@@ -279,7 +294,11 @@ fn setup_command(
             .unwrap_or_default();
         let dest = cmd_dir.join(&file_name);
         fs::copy(src, &dest).map_err(|e| {
-            format!("Failed to copy {} to {}: {e}", src.display(), dest.display())
+            format!(
+                "Failed to copy {} to {}: {e}",
+                src.display(),
+                dest.display()
+            )
         })?;
         created.push(dest);
     }
@@ -318,12 +337,13 @@ fn setup_rule(
     info: &PackageInfo,
 ) -> Result<Vec<PathBuf>, String> {
     let pkg_path = config_pkg_path(&info.name);
-    let rule_dir = project_root
-        .join(".cursor")
-        .join("rules")
-        .join(&pkg_path);
-    fs::create_dir_all(&rule_dir)
-        .map_err(|e| format!("Failed to create .cursor/rules/{}/: {e}", pkg_path.display()))?;
+    let rule_dir = project_root.join(".cursor").join("rules").join(&pkg_path);
+    fs::create_dir_all(&rule_dir).map_err(|e| {
+        format!(
+            "Failed to create .cursor/rules/{}/: {e}",
+            pkg_path.display()
+        )
+    })?;
 
     let md_files = find_definition_files(install_dir, false);
 
@@ -390,7 +410,6 @@ fn prepend_rule_frontmatter(info: &PackageInfo, content: &str) -> String {
     let body = strip_frontmatter(content);
     format!("{header}{body}")
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -569,10 +588,7 @@ mod tests {
         let paths = setup_cursor(tmp.path(), &install_dir, &agent_info()).unwrap();
         assert_eq!(paths.len(), 1);
         assert!(paths[0].exists());
-        assert_eq!(
-            paths[0].file_name().unwrap(),
-            "research-agent.md"
-        );
+        assert_eq!(paths[0].file_name().unwrap(), "research-agent.md");
         assert!(paths[0]
             .parent()
             .unwrap()
@@ -654,10 +670,7 @@ mod tests {
 
         let paths = setup_cursor(tmp.path(), &install_dir, &command_info()).unwrap();
         assert_eq!(paths.len(), 1);
-        assert_eq!(
-            paths[0].file_name().unwrap(),
-            "command-audit.md"
-        );
+        assert_eq!(paths[0].file_name().unwrap(), "command-audit.md");
         let content = fs::read_to_string(&paths[0]).unwrap();
         assert!(content.contains("# @sheplu/command-audit"));
         assert!(content.contains("slash command"));
@@ -682,10 +695,7 @@ mod tests {
         let paths = setup_cursor(tmp.path(), &install_dir, &rule_info()).unwrap();
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].file_name().unwrap(), "my-rule.mdc");
-        assert!(paths[0]
-            .parent()
-            .unwrap()
-            .ends_with("rules/@acme/my-rule"));
+        assert!(paths[0].parent().unwrap().ends_with("rules/@acme/my-rule"));
     }
 
     #[test]
@@ -768,8 +778,7 @@ mod tests {
     #[test]
     fn test_prepend_rule_frontmatter_strips_existing() {
         let info = rule_info();
-        let result =
-            prepend_rule_frontmatter(&info, "---\nold: value\n---\nActual rule content.");
+        let result = prepend_rule_frontmatter(&info, "---\nold: value\n---\nActual rule content.");
         assert!(result.contains("alwaysApply: true"));
         assert!(result.contains("Actual rule content."));
         assert!(!result.contains("old: value"));

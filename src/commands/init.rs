@@ -42,9 +42,7 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
     let name: String = Input::new()
         .with_prompt("Package name (@scope/name)")
         .default(default_name)
-        .validate_with(|input: &String| -> Result<(), String> {
-            validate_package_name(input)
-        })
+        .validate_with(|input: &String| -> Result<(), String> { validate_package_name(input) })
         .interact_text()
         .map_err(|e| AppError::Other(format!("Input error: {e}")))?;
 
@@ -136,9 +134,8 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
             }]
         })
     };
-    let repository = git::get_repository_url().or_else(|| {
-        scope.map(|s| format!("https://github.com/{s}/{dir_name}"))
-    });
+    let repository = git::get_repository_url()
+        .or_else(|| scope.map(|s| format!("https://github.com/{s}/{dir_name}")));
 
     let m = Manifest {
         name: name.clone(),

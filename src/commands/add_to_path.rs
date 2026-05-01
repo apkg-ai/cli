@@ -337,7 +337,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let paths = resolve_paths(tmp.path()).unwrap();
         assert_eq!(paths.bin_dir, tmp.path().join(".apkg").join("bin"));
-        assert_eq!(paths.target_bin, tmp.path().join(".apkg").join("bin").join("apkg"));
+        assert_eq!(
+            paths.target_bin,
+            tmp.path().join(".apkg").join("bin").join("apkg")
+        );
     }
 
     #[test]

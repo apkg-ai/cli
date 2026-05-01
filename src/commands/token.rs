@@ -290,11 +290,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let result = run(
-            TokenAction::Revoke { id: "tok-001" },
-            Some(&server.uri()),
-        )
-        .await;
+        let result = run(TokenAction::Revoke { id: "tok-001" }, Some(&server.uri())).await;
         assert!(result.is_ok());
     }
 

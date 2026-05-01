@@ -26,10 +26,7 @@ pub fn setup_codex(
     } else {
         info.package_type.dir_name()
     };
-    let target_dir = project_root
-        .join(".codex")
-        .join(type_dir)
-        .join(&pkg_path);
+    let target_dir = project_root.join(".codex").join(type_dir).join(&pkg_path);
     fs::create_dir_all(&target_dir).map_err(|e| {
         format!(
             "Failed to create .codex/{type_dir}/{}/: {e}",
@@ -37,12 +34,16 @@ pub fn setup_codex(
         )
     })?;
 
-    let require_frontmatter = !matches!(info.package_type, PackageType::Command | PackageType::Rule);
+    let require_frontmatter =
+        !matches!(info.package_type, PackageType::Command | PackageType::Rule);
     let md_files = find_definition_files(install_dir, require_frontmatter);
 
     // Skills (and commands, which Codex treats as skills) stay as markdown —
     // copy them directly instead of transforming to TOML.
-    if matches!(info.package_type, PackageType::Skill | PackageType::Command | PackageType::Rule) {
+    if matches!(
+        info.package_type,
+        PackageType::Skill | PackageType::Command | PackageType::Rule
+    ) {
         let rename_to_skill = info.package_type == PackageType::Command;
         let mut created =
             setup_codex_skill(&target_dir, install_dir, info, &md_files, rename_to_skill)?;
@@ -81,8 +82,7 @@ pub fn setup_codex(
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
         let dest = target_dir.join(format!("{stem}.toml"));
-        fs::write(&dest, &toml)
-            .map_err(|e| format!("Failed to write {}: {e}", dest.display()))?;
+        fs::write(&dest, &toml).map_err(|e| format!("Failed to write {}: {e}", dest.display()))?;
         created.push(dest);
     }
 
@@ -125,8 +125,13 @@ fn setup_codex_skill(
                 .unwrap_or_default()
         };
         let dest = target_dir.join(&dest_name);
-        fs::copy(src, &dest)
-            .map_err(|e| format!("Failed to copy {} to {}: {e}", src.display(), dest.display()))?;
+        fs::copy(src, &dest).map_err(|e| {
+            format!(
+                "Failed to copy {} to {}: {e}",
+                src.display(),
+                dest.display()
+            )
+        })?;
         created.push(dest);
     }
     Ok(created)
@@ -186,11 +191,7 @@ fn generate_codex_toml(
     let mut out = String::new();
 
     let _ = writeln!(out, "name = \"{}\"", escape_toml_basic(name));
-    let _ = writeln!(
-        out,
-        "description = \"{}\"",
-        escape_toml_basic(description)
-    );
+    let _ = writeln!(out, "description = \"{}\"", escape_toml_basic(description));
 
     // Omit model if absent or "inherit" (inherit means use parent session model).
     if let Some(m) = model {
@@ -250,11 +251,7 @@ pub fn collect_codex_rules(project_root: &Path) -> Vec<(String, PathBuf)> {
             if let Ok(pkgs) = fs::read_dir(&scope_path) {
                 for pkg_entry in pkgs.filter_map(Result::ok) {
                     if pkg_entry.path().is_dir() {
-                        collect_rules_from_pkg_dir(
-                            project_root,
-                            &pkg_entry.path(),
-                            &mut rules,
-                        );
+                        collect_rules_from_pkg_dir(project_root, &pkg_entry.path(), &mut rules);
                     }
                 }
             }
@@ -280,7 +277,10 @@ fn collect_rules_from_pkg_dir(
 
     for entry in entries.filter_map(Result::ok) {
         let path = entry.path();
-        if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")) {
+        if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("md"))
+        {
             let title = extract_rule_title(&path);
             let rel = path
                 .strip_prefix(project_root)
@@ -473,12 +473,7 @@ mod tests {
 
     #[test]
     fn test_generate_codex_toml_with_model() {
-        let toml = generate_codex_toml(
-            "my-agent",
-            "Agent",
-            "Instructions.",
-            Some("gpt-5.4-mini"),
-        );
+        let toml = generate_codex_toml("my-agent", "Agent", "Instructions.", Some("gpt-5.4-mini"));
         assert!(toml.contains("model = \"gpt-5.4-mini\""));
     }
 
@@ -490,8 +485,7 @@ mod tests {
 
     #[test]
     fn test_generate_codex_toml_escapes_quotes() {
-        let toml =
-            generate_codex_toml("my-agent", "Agent with \"quotes\"", "Say \"hello\".", None);
+        let toml = generate_codex_toml("my-agent", "Agent with \"quotes\"", "Say \"hello\".", None);
         assert!(toml.contains("description = \"Agent with \\\"quotes\\\"\""));
         // Inside multi-line basic strings, isolated quotes don't need escaping
         assert!(toml.contains("Say \"hello\"."));
@@ -677,9 +671,7 @@ mod tests {
         let paths = setup_codex(tmp.path(), &install_dir, &agent_info()).unwrap();
         assert_eq!(paths.len(), 2);
         assert!(paths.iter().all(|p| p.exists()));
-        assert!(paths
-            .iter()
-            .all(|p| p.extension().unwrap() == "toml"));
+        assert!(paths.iter().all(|p| p.extension().unwrap() == "toml"));
 
         let names: Vec<_> = paths
             .iter()
@@ -851,9 +843,14 @@ mod tests {
 
         let paths = setup_codex(tmp.path(), &install_dir, &rule_info()).unwrap();
         assert!(paths.iter().any(|p| p.extension().unwrap() == "md"
-            && p.parent().unwrap().ends_with("rules/@acme/no-todo-comments")));
+            && p.parent()
+                .unwrap()
+                .ends_with("rules/@acme/no-todo-comments")));
 
-        let rule_path = paths.iter().find(|p| p.file_name().unwrap() != "AGENTS.md").unwrap();
+        let rule_path = paths
+            .iter()
+            .find(|p| p.file_name().unwrap() != "AGENTS.md")
+            .unwrap();
         let content = fs::read_to_string(rule_path).unwrap();
         assert!(content.contains("Never leave TODO comments"));
     }
@@ -863,9 +860,10 @@ mod tests {
     #[test]
     fn test_update_agents_md_creates_file() {
         let tmp = TempDir::new().unwrap();
-        let rules = vec![
-            ("Disallow TODO".to_string(), PathBuf::from(".codex/rules/@acme/no-todo/no-todo.md")),
-        ];
+        let rules = vec![(
+            "Disallow TODO".to_string(),
+            PathBuf::from(".codex/rules/@acme/no-todo/no-todo.md"),
+        )];
         let result = update_agents_md_rules(tmp.path(), &rules).unwrap();
         assert!(result.is_some());
 
@@ -879,11 +877,16 @@ mod tests {
     #[test]
     fn test_update_agents_md_appends_to_existing() {
         let tmp = TempDir::new().unwrap();
-        fs::write(tmp.path().join("AGENTS.md"), "# My Project Agents\n\nSome existing content.\n").unwrap();
+        fs::write(
+            tmp.path().join("AGENTS.md"),
+            "# My Project Agents\n\nSome existing content.\n",
+        )
+        .unwrap();
 
-        let rules = vec![
-            ("My rule".to_string(), PathBuf::from(".codex/rules/my-rule/rule.md")),
-        ];
+        let rules = vec![(
+            "My rule".to_string(),
+            PathBuf::from(".codex/rules/my-rule/rule.md"),
+        )];
         update_agents_md_rules(tmp.path(), &rules).unwrap();
 
         let content = fs::read_to_string(tmp.path().join("AGENTS.md")).unwrap();
@@ -900,9 +903,10 @@ mod tests {
         let initial = "# Agents\n\n<!-- apkg:rules -->\n## Rules\n\n- [Old rule](.codex/rules/old/old.md)\n<!-- /apkg:rules -->\n\nMore content.\n";
         fs::write(tmp.path().join("AGENTS.md"), initial).unwrap();
 
-        let rules = vec![
-            ("New rule".to_string(), PathBuf::from(".codex/rules/new/new.md")),
-        ];
+        let rules = vec![(
+            "New rule".to_string(),
+            PathBuf::from(".codex/rules/new/new.md"),
+        )];
         update_agents_md_rules(tmp.path(), &rules).unwrap();
 
         let content = fs::read_to_string(tmp.path().join("AGENTS.md")).unwrap();
@@ -959,7 +963,8 @@ mod tests {
         fs::write(
             scoped.join("no-todo.md"),
             "---\nname: no-todo\ndescription: Disallow TODO\n---\nContent.\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         // Unscoped rule
         let unscoped = tmp.path().join(".codex/rules/my-rule");
@@ -978,7 +983,11 @@ mod tests {
     fn test_extract_rule_title_from_frontmatter() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("rule.md");
-        fs::write(&path, "---\nname: my-rule\ndescription: A great rule\n---\nBody.\n").unwrap();
+        fs::write(
+            &path,
+            "---\nname: my-rule\ndescription: A great rule\n---\nBody.\n",
+        )
+        .unwrap();
         assert_eq!(extract_rule_title(&path), "A great rule");
     }
 

@@ -22,12 +22,8 @@ pub enum PackageType {
 
 impl PackageType {
     pub const VARIANTS: &[&str] = &[
-        "project",
-        "skill",
-        "agent",
-        // "mcp-server",
-        "command",
-        // "config",
+        "project", "skill", "agent",   // "mcp-server",
+        "command", // "config",
         // "library",
         // "composite",
         "rule",
@@ -136,7 +132,12 @@ pub fn validate_platforms(values: &[String]) -> Vec<String> {
     values
         .iter()
         .filter(|v| !KNOWN_PLATFORMS.contains(&v.as_str()))
-        .map(|v| format!("Unknown platform \"{v}\". Known platforms: {}", KNOWN_PLATFORMS.join(", ")))
+        .map(|v| {
+            format!(
+                "Unknown platform \"{v}\". Known platforms: {}",
+                KNOWN_PLATFORMS.join(", ")
+            )
+        })
         .collect()
 }
 

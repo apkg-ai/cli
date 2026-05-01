@@ -62,9 +62,12 @@ impl Settings {
         } else if let Some(svc) = key.strip_prefix("services.") {
             self.services.get(svc).map(String::as_str)
         } else if let Some(tool) = key.strip_prefix("defaultSetup.") {
-            self.default_setup.get(tool).map(|v| if *v { "true" } else { "false" })
+            self.default_setup
+                .get(tool)
+                .map(|v| if *v { "true" } else { "false" })
         } else if key == "symlinkClaudeMd" {
-            self.symlink_claude_md.map(|v| if v { "true" } else { "false" })
+            self.symlink_claude_md
+                .map(|v| if v { "true" } else { "false" })
         } else {
             None
         }
@@ -250,8 +253,12 @@ mod tests {
         s.set("defaultSetup.claude-code", "false");
         let entries = s.entries();
         assert_eq!(entries.len(), 2);
-        assert!(entries.iter().any(|(k, v)| k == "defaultSetup.claude-code" && v == "false"));
-        assert!(entries.iter().any(|(k, v)| k == "defaultSetup.cursor" && v == "true"));
+        assert!(entries
+            .iter()
+            .any(|(k, v)| k == "defaultSetup.claude-code" && v == "false"));
+        assert!(entries
+            .iter()
+            .any(|(k, v)| k == "defaultSetup.cursor" && v == "true"));
     }
 
     #[test]
@@ -307,7 +314,10 @@ mod tests {
         let mut s = Settings::default();
         assert!(s.entries().iter().all(|(k, _)| k != "symlinkClaudeMd"));
         s.set("symlinkClaudeMd", "true");
-        assert!(s.entries().iter().any(|(k, v)| k == "symlinkClaudeMd" && v == "true"));
+        assert!(s
+            .entries()
+            .iter()
+            .any(|(k, v)| k == "symlinkClaudeMd" && v == "true"));
     }
 
     #[test]

@@ -341,11 +341,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let result = run(
-            KeyAction::List { local: false },
-            Some(&server.uri()),
-        )
-        .await;
+        let result = run(KeyAction::List { local: false }, Some(&server.uri())).await;
         assert!(result.is_ok());
     }
 
@@ -363,11 +359,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let result = run(
-            KeyAction::List { local: false },
-            Some(&server.uri()),
-        )
-        .await;
+        let result = run(KeyAction::List { local: false }, Some(&server.uri())).await;
         assert!(result.is_ok());
     }
 

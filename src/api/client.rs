@@ -880,7 +880,10 @@ mod tests {
             .mount(&server)
             .await;
         let client = make_test_client(&server).await;
-        let resp = client.revoke_key("key-001", "compromised", None).await.unwrap();
+        let resp = client
+            .revoke_key("key-001", "compromised", None)
+            .await
+            .unwrap();
         assert_eq!(resp.status, "revoked");
     }
 
@@ -898,7 +901,10 @@ mod tests {
             .mount(&server)
             .await;
         let client = make_test_client(&server).await;
-        let resp = client.rotate_key("key-001", "new-pub", "attestation").await.unwrap();
+        let resp = client
+            .rotate_key("key-001", "new-pub", "attestation")
+            .await
+            .unwrap();
         assert_eq!(resp.new_key_id, "key-002");
     }
 
@@ -920,7 +926,10 @@ mod tests {
             .await;
         let client = make_test_client(&server).await;
         let scopes = vec!["publish".to_string()];
-        let resp = client.create_token("ci-token", &scopes, "365d", None).await.unwrap();
+        let resp = client
+            .create_token("ci-token", &scopes, "365d", None)
+            .await
+            .unwrap();
         assert_eq!(resp.id, "tok-001");
         assert_eq!(resp.token, "apkg_abc123");
     }
@@ -974,7 +983,10 @@ mod tests {
             .mount(&server)
             .await;
         let client = make_test_client(&server).await;
-        let resp = client.set_dist_tag("mypkg", "latest", "1.0.0").await.unwrap();
+        let resp = client
+            .set_dist_tag("mypkg", "latest", "1.0.0")
+            .await
+            .unwrap();
         assert_eq!(resp.tag, "latest");
         assert_eq!(resp.version, "1.0.0");
     }
@@ -1008,7 +1020,10 @@ mod tests {
             .mount(&server)
             .await;
         let client = make_test_client(&server).await;
-        let resp = client.deprecate_package("mypkg", Some("This package is deprecated")).await.unwrap();
+        let resp = client
+            .deprecate_package("mypkg", Some("This package is deprecated"))
+            .await
+            .unwrap();
         assert_eq!(resp.name, "mypkg");
     }
 
@@ -1025,7 +1040,10 @@ mod tests {
             .mount(&server)
             .await;
         let client = make_test_client(&server).await;
-        let resp = client.deprecate_version("mypkg", "1.0.0", Some("Use v2")).await.unwrap();
+        let resp = client
+            .deprecate_version("mypkg", "1.0.0", Some("Use v2"))
+            .await
+            .unwrap();
         assert_eq!(resp.version, "1.0.0");
     }
 

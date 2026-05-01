@@ -188,11 +188,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let result = run(
-            DistTagAction::Ls { package: "mypkg" },
-            Some(&server.uri()),
-        )
-        .await;
+        let result = run(DistTagAction::Ls { package: "mypkg" }, Some(&server.uri())).await;
         assert!(result.is_ok());
     }
 
@@ -213,11 +209,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let result = run(
-            DistTagAction::Ls { package: "mypkg" },
-            Some(&server.uri()),
-        )
-        .await;
+        let result = run(DistTagAction::Ls { package: "mypkg" }, Some(&server.uri())).await;
         assert!(result.is_ok());
     }
 }

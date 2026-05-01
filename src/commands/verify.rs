@@ -479,8 +479,20 @@ mod tests {
     #[test]
     fn test_print_table_all_ok() {
         let results = vec![
-            make_result("@test/foo", "1.0.0", CheckStatus::Ok, CheckStatus::Verified, "verified"),
-            make_result("@test/bar", "2.0.0", CheckStatus::Ok, CheckStatus::Verified, "verified (github-actions)"),
+            make_result(
+                "@test/foo",
+                "1.0.0",
+                CheckStatus::Ok,
+                CheckStatus::Verified,
+                "verified",
+            ),
+            make_result(
+                "@test/bar",
+                "2.0.0",
+                CheckStatus::Ok,
+                CheckStatus::Verified,
+                "verified (github-actions)",
+            ),
         ];
         print_table(&results);
     }
@@ -488,10 +500,34 @@ mod tests {
     #[test]
     fn test_print_table_mixed() {
         let results = vec![
-            make_result("@test/ok", "1.0.0", CheckStatus::Ok, CheckStatus::Verified, "verified"),
-            make_result("@test/unsigned", "1.0.0", CheckStatus::Ok, CheckStatus::Unsigned, "none"),
-            make_result("@test/invalid", "1.0.0", CheckStatus::Mismatch, CheckStatus::Invalid, "none"),
-            make_result("@test/error", "1.0.0", CheckStatus::Error("download failed".into()), CheckStatus::Unsigned, "none"),
+            make_result(
+                "@test/ok",
+                "1.0.0",
+                CheckStatus::Ok,
+                CheckStatus::Verified,
+                "verified",
+            ),
+            make_result(
+                "@test/unsigned",
+                "1.0.0",
+                CheckStatus::Ok,
+                CheckStatus::Unsigned,
+                "none",
+            ),
+            make_result(
+                "@test/invalid",
+                "1.0.0",
+                CheckStatus::Mismatch,
+                CheckStatus::Invalid,
+                "none",
+            ),
+            make_result(
+                "@test/error",
+                "1.0.0",
+                CheckStatus::Error("download failed".into()),
+                CheckStatus::Unsigned,
+                "none",
+            ),
         ];
         print_table(&results);
     }
@@ -499,25 +535,53 @@ mod tests {
     #[test]
     fn test_print_table_all_unsigned() {
         let results = vec![
-            make_result("pkg-a", "1.0.0", CheckStatus::Ok, CheckStatus::Unsigned, "none"),
-            make_result("pkg-b", "2.0.0", CheckStatus::Ok, CheckStatus::Unsigned, "none"),
+            make_result(
+                "pkg-a",
+                "1.0.0",
+                CheckStatus::Ok,
+                CheckStatus::Unsigned,
+                "none",
+            ),
+            make_result(
+                "pkg-b",
+                "2.0.0",
+                CheckStatus::Ok,
+                CheckStatus::Unsigned,
+                "none",
+            ),
         ];
         print_table(&results);
     }
 
     #[test]
     fn test_print_json_all_ok() {
-        let results = vec![
-            make_result("@test/foo", "1.0.0", CheckStatus::Ok, CheckStatus::Verified, "verified"),
-        ];
+        let results = vec![make_result(
+            "@test/foo",
+            "1.0.0",
+            CheckStatus::Ok,
+            CheckStatus::Verified,
+            "verified",
+        )];
         print_json(&results);
     }
 
     #[test]
     fn test_print_json_mixed() {
         let results = vec![
-            make_result("@test/ok", "1.0.0", CheckStatus::Ok, CheckStatus::Verified, "verified"),
-            make_result("@test/bad", "2.0.0", CheckStatus::Mismatch, CheckStatus::Invalid, "none"),
+            make_result(
+                "@test/ok",
+                "1.0.0",
+                CheckStatus::Ok,
+                CheckStatus::Verified,
+                "verified",
+            ),
+            make_result(
+                "@test/bad",
+                "2.0.0",
+                CheckStatus::Mismatch,
+                CheckStatus::Invalid,
+                "none",
+            ),
         ];
         print_json(&results);
     }
@@ -870,10 +934,10 @@ mod tests {
         cache::store("pkg-a", "1.0.0", data_a, &hash_a).unwrap();
         cache::store("pkg-b", "2.0.0", data_b, &hash_b).unwrap();
 
-        write_lockfile(tmp.path(), &[
-            ("pkg-a", "1.0.0", &hash_a),
-            ("pkg-b", "2.0.0", &hash_b),
-        ]);
+        write_lockfile(
+            tmp.path(),
+            &[("pkg-a", "1.0.0", &hash_a), ("pkg-b", "2.0.0", &hash_b)],
+        );
         std::env::set_current_dir(tmp.path()).unwrap();
 
         let server = MockServer::start().await;

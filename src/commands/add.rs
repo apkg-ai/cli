@@ -88,7 +88,9 @@ pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
 
     // Download all resolved packages (direct + transitive)
     for (pkg_name, pkg) in &result.packages {
-        let pkg_install_dir = cwd.join("apkg_packages").join(install::safe_dir_name(pkg_name));
+        let pkg_install_dir = cwd
+            .join("apkg_packages")
+            .join(install::safe_dir_name(pkg_name));
         install::download_or_cache(
             &client,
             pkg_name,
@@ -103,9 +105,10 @@ pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
     pb.finish_and_clear();
 
     // Update manifest — only for the direct dependency
-    let direct_pkg = result.packages.get(&name).ok_or_else(|| {
-        AppError::Other(format!("Resolver did not resolve {name}"))
-    })?;
+    let direct_pkg = result
+        .packages
+        .get(&name)
+        .ok_or_else(|| AppError::Other(format!("Resolver did not resolve {name}")))?;
     let manifest_range = update_manifest_deps(&mut m, opts.category, &name, &direct_pkg.version);
     manifest::save(&cwd, &m)?;
 
@@ -123,7 +126,9 @@ pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
     display::success(&format!("Added {name}@{}", direct_pkg.version));
     display::label_value("Range", &manifest_range);
     display::label_value("Saved to", opts.category.label());
-    let direct_install_dir = cwd.join("apkg_packages").join(install::safe_dir_name(&name));
+    let direct_install_dir = cwd
+        .join("apkg_packages")
+        .join(install::safe_dir_name(&name));
     display::label_value("Location", &direct_install_dir.display().to_string());
     display::label_value("Integrity", &direct_pkg.integrity);
 
@@ -134,8 +139,9 @@ pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
     // Run setup for ALL resolved packages
     if let Some(target) = opts.setup_target {
         for pkg_name in result.packages.keys() {
-            let pkg_install_dir =
-                cwd.join("apkg_packages").join(install::safe_dir_name(pkg_name));
+            let pkg_install_dir = cwd
+                .join("apkg_packages")
+                .join(install::safe_dir_name(pkg_name));
             let report = setup::run_setup(&setup::SetupContext {
                 project_root: cwd.clone(),
                 install_dir: pkg_install_dir,

@@ -10,6 +10,9 @@ use crate::config::{credentials, manifest};
 use crate::error::AppError;
 use crate::util::{display, integrity, tarball};
 
+/// Mirror of the server's `readme` size cap (`publishMetadataSchema.readme.max`).
+const MAX_README_BYTES: usize = 524_288;
+
 pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
     let cwd = env::current_dir()?;
     let m = manifest::load(&cwd)?;
@@ -73,6 +76,27 @@ pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
     }
     if let Some(kw) = &m.keywords {
         obj.insert("keywords".into(), serde_json::json!(kw));
+    }
+    if let Some(repo) = &m.repository {
+        obj.insert("repository".into(), serde_json::json!(repo));
+    }
+    if let Some(home) = &m.homepage {
+        obj.insert("homepage".into(), serde_json::json!(home));
+    }
+    if let Some(readme_filename) = &m.readme {
+        let readme_path = cwd.join(readme_filename);
+        let content = std::fs::read_to_string(&readme_path).map_err(|e| {
+            AppError::Other(format!(
+                "Failed to read readme file '{readme_filename}': {e}"
+            ))
+        })?;
+        if content.len() > MAX_README_BYTES {
+            return Err(AppError::Other(format!(
+                "Readme file '{readme_filename}' is {} bytes; registry limit is {MAX_README_BYTES} bytes.",
+                content.len()
+            )));
+        }
+        obj.insert("readme".into(), serde_json::json!(content));
     }
     if let Some(deps) = &m.dependencies {
         obj.insert("dependencies".into(), serde_json::json!(deps));
@@ -211,5 +235,138 @@ mod tests {
         // Should succeed but print warning (we just verify no error)
         let result = run(Some(&server.uri())).await;
         assert!(result.is_ok());
+    }
+
+    fn write_manifest_with(dir: &std::path::Path, extra: serde_json::Value) {
+        let mut manifest = serde_json::json!({
+            "name": "@user/my-skill",
+            "version": "1.0.0",
+            "type": "skill",
+            "description": "Test package",
+            "license": "MIT",
+            "platform": ["claude"],
+        });
+        let base = manifest.as_object_mut().unwrap();
+        for (k, v) in extra.as_object().unwrap() {
+            base.insert(k.clone(), v.clone());
+        }
+        std::fs::write(
+            dir.join("apkg.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// Extract the multipart `metadata` string field from a recorded request body.
+    /// The body also contains the binary tarball, so we work on bytes, not utf8.
+    fn extract_metadata_field(body: &[u8]) -> serde_json::Value {
+        let marker = b"name=\"metadata\"";
+        let start = find_subslice(body, marker).expect("metadata part present") + marker.len();
+        let after = &body[start..];
+        let blank_line = find_subslice(after, b"\r\n\r\n").expect("end of metadata headers");
+        let content_start = blank_line + 4;
+        let remaining = &after[content_start..];
+        let boundary = find_subslice(remaining, b"\r\n--").expect("boundary after metadata");
+        let slice = &remaining[..boundary];
+        let text = std::str::from_utf8(slice).expect("metadata part is utf8");
+        serde_json::from_str(text).expect("metadata is valid json")
+    }
+
+    fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        haystack.windows(needle.len()).position(|w| w == needle)
+    }
+
+    #[tokio::test]
+    async fn test_publish_sends_repository_and_homepage() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        write_manifest_with(
+            tmp.path(),
+            serde_json::json!({
+                "repository": "https://github.com/user/my-skill",
+                "homepage": "https://example.test/my-skill",
+            }),
+        );
+        std::fs::write(tmp.path().join("index.ts"), "export default {};").unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path("/packages/%40user%2Fmy-skill"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "@user/my-skill",
+                "version": "1.0.0",
+            })))
+            .mount(&server)
+            .await;
+
+        run(Some(&server.uri())).await.unwrap();
+
+        let received = &server.received_requests().await.unwrap()[0];
+        let metadata = extract_metadata_field(&received.body);
+        assert_eq!(metadata["repository"], "https://github.com/user/my-skill");
+        assert_eq!(metadata["homepage"], "https://example.test/my-skill");
+    }
+
+    #[tokio::test]
+    async fn test_publish_inlines_readme_content() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        write_manifest_with(tmp.path(), serde_json::json!({ "readme": "README.md" }));
+        std::fs::write(tmp.path().join("README.md"), "# Hello\nSome docs.\n").unwrap();
+        std::fs::write(tmp.path().join("index.ts"), "export default {};").unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path("/packages/%40user%2Fmy-skill"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "@user/my-skill",
+                "version": "1.0.0",
+            })))
+            .mount(&server)
+            .await;
+
+        run(Some(&server.uri())).await.unwrap();
+
+        let received = &server.received_requests().await.unwrap()[0];
+        let metadata = extract_metadata_field(&received.body);
+        assert_eq!(metadata["readme"], "# Hello\nSome docs.\n");
+    }
+
+    #[tokio::test]
+    async fn test_publish_errors_when_readme_exceeds_cap() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        write_manifest_with(tmp.path(), serde_json::json!({ "readme": "README.md" }));
+        // One byte over the cap.
+        std::fs::write(
+            tmp.path().join("README.md"),
+            "a".repeat(MAX_README_BYTES + 1),
+        )
+        .unwrap();
+        std::fs::write(tmp.path().join("index.ts"), "export default {};").unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        let err = run(Some(&server.uri())).await.unwrap_err();
+        assert!(err.to_string().contains("registry limit"));
+    }
+
+    #[tokio::test]
+    async fn test_publish_errors_when_readme_file_missing() {
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        write_manifest_with(tmp.path(), serde_json::json!({ "readme": "MISSING.md" }));
+        std::fs::write(tmp.path().join("index.ts"), "export default {};").unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        let err = run(Some(&server.uri())).await.unwrap_err();
+        assert!(err.to_string().contains("Failed to read readme file"));
     }
 }

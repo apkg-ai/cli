@@ -11,7 +11,7 @@ use crate::error::AppError;
 use crate::util::{display, integrity, tarball};
 
 /// Mirror of the server's `readme` size cap (`publishMetadataSchema.readme.max`).
-const MAX_README_BYTES: usize = 524_288;
+const MAX_README_BYTES: usize = 20_480;
 
 pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
     let cwd = env::current_dir()?;

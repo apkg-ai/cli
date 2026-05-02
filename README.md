@@ -6,7 +6,21 @@ Package manager for AI tooling — skills, agents, commands, and rules for Claud
 
 ## Install
 
-Download the latest release for your platform from the [releases page](https://github.com/apkg-ai/cli/releases/latest):
+### One-line installer (macOS, Linux)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/apkg-ai/cli/main/install.sh | sh
+```
+
+Detects your platform, verifies the SHA-256 checksum, installs to `~/.apkg/bin/apkg`, and adds it to your `PATH`. Options:
+
+- `APKG_VERSION=v0.1.0 sh install.sh` — pin a specific version.
+- `sh install.sh --install-dir ~/bin` — install to a custom directory (skips shell RC edits).
+- `sh install.sh --no-modify-path` — install without touching any shell RC file.
+
+### Manual download
+
+Grab a tarball from the [releases page](https://github.com/apkg-ai/cli/releases/latest):
 
 | Platform | Asset |
 |---|---|

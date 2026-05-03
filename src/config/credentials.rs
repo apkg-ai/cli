@@ -37,6 +37,13 @@ pub fn save(creds: &Credentials) -> Result<(), AppError> {
     }
     let content = serde_json::to_string_pretty(creds)?;
     fs::write(&path, content)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+    }
+
     Ok(())
 }
 
@@ -158,5 +165,21 @@ mod tests {
 
         let removed = remove().unwrap();
         assert!(!removed);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_save_sets_unix_permissions_to_0600() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        save(&sample_credentials()).unwrap();
+
+        let path = tmp.path().join(".apkg").join("credentials.json");
+        let mode = path.metadata().unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "credentials.json must be user-only readable");
     }
 }

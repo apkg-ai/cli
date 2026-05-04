@@ -65,18 +65,7 @@ async fn install_all(opts: &InstallOptions<'_>) -> Result<(), AppError> {
 
     // Install each resolved package
     let pkg_count = result.packages.len();
-    for (name, pkg) in &result.packages {
-        let install_dir = cwd.join("apkg_packages").join(safe_dir_name(name));
-        download_or_cache(
-            &client,
-            name,
-            &pkg.version,
-            &pkg.integrity,
-            &install_dir,
-            &pb,
-        )
-        .await?;
-    }
+    download_resolved(&client, &result, &cwd, &pb).await?;
 
     // Write lockfile
     let lf = build_lockfile(&result);
@@ -85,17 +74,7 @@ async fn install_all(opts: &InstallOptions<'_>) -> Result<(), AppError> {
     pb.finish_and_clear();
 
     // Run setup for all installed packages
-    if let Some(ref target) = opts.setup_target {
-        for name in result.packages.keys() {
-            let install_dir = cwd.join("apkg_packages").join(safe_dir_name(name));
-            let report = setup::run_setup(&setup::SetupContext {
-                project_root: cwd.clone(),
-                install_dir,
-                target: target.clone(),
-            });
-            setup::display_report(&report);
-        }
-    }
+    run_setup_for_result(&result, &cwd, opts.setup_target.as_ref());
 
     let elapsed = start.elapsed();
     display::success(&format!(
@@ -115,19 +94,7 @@ async fn install_single(opts: &InstallOptions<'_>, pkg: &str) -> Result<(), AppE
 
     let pb = make_spinner();
 
-    // Pre-resolve dist-tags to a version range the resolver can handle
-    let range = match version_spec {
-        Some(spec) if is_dist_tag(spec) => {
-            pb.set_message(format!("Resolving {name}@{spec}..."));
-            let metadata = client.get_package(&name).await?;
-            let version = metadata.dist_tags.get(spec).ok_or_else(|| {
-                AppError::PackageNotFound(format!("{}@{spec} — tag not found", name))
-            })?;
-            format!("={version}")
-        }
-        Some(spec) => spec.to_string(),
-        None => "*".to_string(),
-    };
+    let range = resolve_dist_tag_to_range(&client, &name, version_spec, &pb).await?;
 
     let mut deps_map = BTreeMap::new();
     deps_map.insert(name.clone(), range);
@@ -141,18 +108,7 @@ async fn install_single(opts: &InstallOptions<'_>, pkg: &str) -> Result<(), AppE
     // Download all resolved packages (direct + transitive)
     let start = std::time::Instant::now();
     let pkg_count = result.packages.len();
-    for (pkg_name, resolved) in &result.packages {
-        let install_dir = cwd.join("apkg_packages").join(safe_dir_name(pkg_name));
-        download_or_cache(
-            &client,
-            pkg_name,
-            &resolved.version,
-            &resolved.integrity,
-            &install_dir,
-            &pb,
-        )
-        .await?;
-    }
+    download_resolved(&client, &result, &cwd, &pb).await?;
 
     // Merge into existing lockfile
     let mut lf = existing_lockfile.unwrap_or_else(|| Lockfile {
@@ -189,17 +145,7 @@ async fn install_single(opts: &InstallOptions<'_>, pkg: &str) -> Result<(), AppE
     ));
 
     // Run setup for ALL resolved packages
-    if let Some(ref target) = opts.setup_target {
-        for pkg_name in result.packages.keys() {
-            let install_dir = cwd.join("apkg_packages").join(safe_dir_name(pkg_name));
-            let report = setup::run_setup(&setup::SetupContext {
-                project_root: cwd.clone(),
-                install_dir,
-                target: target.clone(),
-            });
-            setup::display_report(&report);
-        }
-    }
+    run_setup_for_result(&result, &cwd, opts.setup_target.as_ref());
 
     Ok(())
 }
@@ -337,6 +283,85 @@ pub(crate) fn make_spinner() -> ProgressBar {
     );
     pb.enable_steady_tick(std::time::Duration::from_millis(80));
     pb
+}
+
+/// Pre-resolve a version spec to something the resolver can consume.
+/// Dist-tags (e.g. "latest", "beta") require a `GET /packages/{name}` to look
+/// up the tag-to-version mapping; exact versions and ranges pass through.
+/// Returns `"*"` when `spec` is `None`.
+pub(crate) async fn resolve_dist_tag_to_range(
+    client: &ApiClient,
+    name: &str,
+    spec: Option<&str>,
+    pb: &ProgressBar,
+) -> Result<String, AppError> {
+    match spec {
+        Some(s) if is_dist_tag(s) => {
+            pb.set_message(format!("Resolving {name}@{s}..."));
+            let metadata = client.get_package(name).await?;
+            let version = metadata
+                .dist_tags
+                .get(s)
+                .ok_or_else(|| AppError::PackageNotFound(format!("{name}@{s} — tag not found")))?;
+            Ok(format!("={version}"))
+        }
+        Some(s) => Ok(s.to_string()),
+        None => Ok("*".to_string()),
+    }
+}
+
+/// Download (or fetch-from-cache) every package in the resolution result and
+/// extract it into `<cwd>/apkg_packages/<name>`. Used by the install/add/update
+/// commands as a shared "apply resolution to disk" step.
+pub(crate) async fn download_resolved(
+    client: &ApiClient,
+    result: &resolver::ResolutionResult,
+    cwd: &Path,
+    pb: &ProgressBar,
+) -> Result<(), AppError> {
+    for (name, pkg) in &result.packages {
+        let install_dir = cwd.join("apkg_packages").join(safe_dir_name(name));
+        download_or_cache(client, name, &pkg.version, &pkg.integrity, &install_dir, pb).await?;
+    }
+    Ok(())
+}
+
+/// Like `download_resolved`, but restricted to the named subset. `update.rs`
+/// uses this to re-install only the packages whose versions actually changed.
+/// Names not present in `result.packages` are silently skipped.
+pub(crate) async fn download_resolved_subset(
+    client: &ApiClient,
+    result: &resolver::ResolutionResult,
+    names: &[&str],
+    cwd: &Path,
+    pb: &ProgressBar,
+) -> Result<(), AppError> {
+    for name in names {
+        if let Some(pkg) = result.packages.get(*name) {
+            let install_dir = cwd.join("apkg_packages").join(safe_dir_name(name));
+            download_or_cache(client, name, &pkg.version, &pkg.integrity, &install_dir, pb).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Run tool-specific setup (claude / cursor / codex) for every package in the
+/// resolution result. No-op when `target` is `None`.
+pub(crate) fn run_setup_for_result(
+    result: &resolver::ResolutionResult,
+    cwd: &Path,
+    target: Option<&setup::SetupTarget>,
+) {
+    let Some(target) = target else { return };
+    for name in result.packages.keys() {
+        let install_dir = cwd.join("apkg_packages").join(safe_dir_name(name));
+        let report = setup::run_setup(&setup::SetupContext {
+            project_root: cwd.to_path_buf(),
+            install_dir,
+            target: target.clone(),
+        });
+        setup::display_report(&report);
+    }
 }
 
 #[cfg(test)]

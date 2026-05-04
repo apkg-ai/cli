@@ -131,22 +131,8 @@ pub async fn run(opts: UpdateOptions<'_>) -> Result<(), AppError> {
 
         // Download changed packages
         let dl_pb = install::make_spinner();
-        for change in &changes {
-            if let Some(pkg) = result.packages.get(&change.name) {
-                let install_dir = cwd
-                    .join("apkg_packages")
-                    .join(install::safe_dir_name(&change.name));
-                install::download_or_cache(
-                    &client,
-                    &change.name,
-                    &pkg.version,
-                    &pkg.integrity,
-                    &install_dir,
-                    &dl_pb,
-                )
-                .await?;
-            }
-        }
+        let names: Vec<&str> = changes.iter().map(|c| c.name.as_str()).collect();
+        install::download_resolved_subset(&client, &result, &names, &cwd, &dl_pb).await?;
         dl_pb.finish_and_clear();
 
         // Save lockfile
@@ -175,17 +161,7 @@ pub async fn run(opts: UpdateOptions<'_>) -> Result<(), AppError> {
     }
 
     // Always run setup for all resolved packages to ensure tool configs are in sync
-    if let Some(ref target) = opts.setup_target {
-        for name in result.packages.keys() {
-            let install_dir = cwd.join("apkg_packages").join(install::safe_dir_name(name));
-            let report = setup::run_setup(&setup::SetupContext {
-                project_root: cwd.clone(),
-                install_dir,
-                target: target.clone(),
-            });
-            setup::display_report(&report);
-        }
-    }
+    install::run_setup_for_result(&result, &cwd, opts.setup_target.as_ref());
 
     Ok(())
 }

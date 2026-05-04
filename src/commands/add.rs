@@ -63,19 +63,7 @@ pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
     let client = ApiClient::new(opts.registry)?;
     let pb = install::make_spinner();
 
-    // Pre-resolve dist-tags to a version range the resolver can handle
-    let range = match version_spec {
-        Some(spec) if install::is_dist_tag(spec) => {
-            pb.set_message(format!("Resolving {name}@{spec}..."));
-            let metadata = client.get_package(&name).await?;
-            let version = metadata.dist_tags.get(spec).ok_or_else(|| {
-                AppError::PackageNotFound(format!("{}@{spec} — tag not found", name))
-            })?;
-            format!("={version}")
-        }
-        Some(spec) => spec.to_string(),
-        None => "*".to_string(),
-    };
+    let range = install::resolve_dist_tag_to_range(&client, &name, version_spec, &pb).await?;
 
     let mut deps_map = BTreeMap::new();
     deps_map.insert(name.clone(), range);
@@ -87,20 +75,7 @@ pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
         resolver::resolve(&client, &deps_map, existing_lockfile.as_ref(), &pb, &cwd).await?;
 
     // Download all resolved packages (direct + transitive)
-    for (pkg_name, pkg) in &result.packages {
-        let pkg_install_dir = cwd
-            .join("apkg_packages")
-            .join(install::safe_dir_name(pkg_name));
-        install::download_or_cache(
-            &client,
-            pkg_name,
-            &pkg.version,
-            &pkg.integrity,
-            &pkg_install_dir,
-            &pb,
-        )
-        .await?;
-    }
+    install::download_resolved(&client, &result, &cwd, &pb).await?;
 
     pb.finish_and_clear();
 
@@ -137,19 +112,7 @@ pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
     }
 
     // Run setup for ALL resolved packages
-    if let Some(target) = opts.setup_target {
-        for pkg_name in result.packages.keys() {
-            let pkg_install_dir = cwd
-                .join("apkg_packages")
-                .join(install::safe_dir_name(pkg_name));
-            let report = setup::run_setup(&setup::SetupContext {
-                project_root: cwd.clone(),
-                install_dir: pkg_install_dir,
-                target: target.clone(),
-            });
-            setup::display_report(&report);
-        }
-    }
+    install::run_setup_for_result(&result, &cwd, opts.setup_target.as_ref());
 
     Ok(())
 }

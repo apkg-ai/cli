@@ -1,2 +1,4 @@
 [alias]
-test-coverage = "llvm-cov --fail-under-lines 70"
+# Mirrors the gate enforced in .github/workflows/quality-gates.yml. If you
+# change the thresholds here, change them there too (and vice versa).
+test-coverage = "llvm-cov --bins --fail-under-lines 85 --fail-under-regions 85 --fail-under-functions 85"

@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::env;
+use std::path::Path;
 
 use console::Style;
 
@@ -28,18 +29,30 @@ struct Change {
     new_range: String,
 }
 
-#[allow(clippy::too_many_lines)]
-pub async fn run(opts: UpdateOptions<'_>) -> Result<(), AppError> {
-    let cwd = env::current_dir()?;
-    let m = manifest::load(&cwd)?;
+/// Inputs a resolution run needs, bundled so the orchestrator doesn't juggle
+/// four related values. Produced by `plan_resolution`, consumed by `run()`.
+struct ResolutionPlan {
+    /// Names to update (from --package or all manifest deps).
+    targets: Vec<String>,
+    /// Original manifest dependency ranges (needed for `old_range` in Change).
+    deps: BTreeMap<String, String>,
+    /// Lockfile pre-existing on disk (for current-version lookup).
+    existing_lockfile: Option<Lockfile>,
+    /// Lockfile with target entries stripped (what the resolver sees).
+    filtered_lockfile: Option<Lockfile>,
+    /// Deps passed to resolver: `*` substituted for targets when --latest.
+    resolution_deps: BTreeMap<String, String>,
+}
 
+/// Phase 1: gather everything the resolver needs. Caller retains ownership of
+/// `m` so it can rewrite the manifest later if `--latest` is set.
+fn plan_resolution(
+    opts: &UpdateOptions<'_>,
+    m: &manifest::Manifest,
+    cwd: &Path,
+) -> Result<ResolutionPlan, AppError> {
     let deps = m.dependencies.clone().unwrap_or_default();
-    if deps.is_empty() {
-        display::info("No dependencies to update.");
-        return Ok(());
-    }
 
-    // Determine which packages to update
     let targets: Vec<String> = if let Some(name) = opts.package {
         if !deps.contains_key(name) {
             return Err(AppError::Other(format!(
@@ -51,15 +64,12 @@ pub async fn run(opts: UpdateOptions<'_>) -> Result<(), AppError> {
         deps.keys().cloned().collect()
     };
 
-    // Load existing lockfile to determine current versions
-    let existing_lockfile = lockfile::load(&cwd)?;
+    let existing_lockfile = lockfile::load(cwd)?;
 
-    // Build filtered lockfile — remove targeted packages so resolver fetches fresh
     let filtered_lockfile = existing_lockfile
         .as_ref()
         .map(|lf| filter_lockfile(lf, &targets));
 
-    // Build resolution deps — for --latest, replace targeted ranges with "*"
     let resolution_deps: BTreeMap<String, String> = deps
         .iter()
         .map(|(name, range)| {
@@ -71,28 +81,28 @@ pub async fn run(opts: UpdateOptions<'_>) -> Result<(), AppError> {
         })
         .collect();
 
-    let client = ApiClient::new(opts.registry)?;
-    let pb = install::make_spinner();
-    pb.set_message("Resolving dependencies...");
+    Ok(ResolutionPlan {
+        targets,
+        deps,
+        existing_lockfile,
+        filtered_lockfile,
+        resolution_deps,
+    })
+}
 
-    let result = resolver::resolve(
-        &client,
-        &resolution_deps,
-        filtered_lockfile.as_ref(),
-        &pb,
-        &cwd,
-    )
-    .await?;
-
-    pb.finish_and_clear();
-
-    // Compute changes — compare resolved versions against current lockfile
-    let changes: Vec<Change> = targets
+/// Phase 2: compare each target's resolved version with its current lockfile
+/// version and produce a `Change` for every one that differs. Pure.
+fn compute_changes(
+    targets: &[String],
+    deps: &BTreeMap<String, String>,
+    result: &resolver::ResolutionResult,
+    existing_lockfile: Option<&Lockfile>,
+) -> Vec<Change> {
+    targets
         .iter()
         .filter_map(|name| {
             let resolved = result.packages.get(name.as_str())?;
             let current_version = existing_lockfile
-                .as_ref()
                 .and_then(|lf| lockfile::find_by_name(lf, name))
                 .map(|entry| entry.version.clone())
                 .unwrap_or_default();
@@ -116,53 +126,98 @@ pub async fn run(opts: UpdateOptions<'_>) -> Result<(), AppError> {
                 new_range,
             })
         })
-        .collect();
+        .collect()
+}
 
+/// Phase 3: all side-effects. Print status, optionally download + save + rewrite
+/// manifest. `m` is consumed because the `--latest` branch needs to mutate and
+/// persist it.
+async fn apply_changes(
+    changes: &[Change],
+    result: &resolver::ResolutionResult,
+    m: manifest::Manifest,
+    opts: &UpdateOptions<'_>,
+    cwd: &Path,
+    client: &ApiClient,
+) -> Result<(), AppError> {
     if changes.is_empty() {
         display::success("All packages are up to date.");
-    } else {
-        // Display table
-        print_changes_table(&changes, opts.latest);
-
-        if opts.dry_run {
-            display::info("No changes written (--dry-run).");
-            return Ok(());
-        }
-
-        // Download changed packages
-        let dl_pb = install::make_spinner();
-        let names: Vec<&str> = changes.iter().map(|c| c.name.as_str()).collect();
-        install::download_resolved_subset(&client, &result, &names, &cwd, &dl_pb).await?;
-        dl_pb.finish_and_clear();
-
-        // Save lockfile
-        let lf = install::build_lockfile(&result);
-        lockfile::save(&cwd, &lf)?;
-
-        // If --latest, update manifest ranges
-        if opts.latest {
-            let mut updated_manifest = m;
-            if let Some(ref mut manifest_deps) = updated_manifest.dependencies {
-                for change in &changes {
-                    if manifest_deps.contains_key(&change.name) {
-                        manifest_deps.insert(change.name.clone(), change.new_range.clone());
-                    }
-                }
-            }
-            manifest::save(&cwd, &updated_manifest)?;
-        }
-
-        let pkg_word = if changes.len() == 1 {
-            "package"
-        } else {
-            "packages"
-        };
-        display::success(&format!("Updated {} {pkg_word}.", changes.len()));
+        return Ok(());
     }
 
-    // Always run setup for all resolved packages to ensure tool configs are in sync
-    install::run_setup_for_result(&result, &cwd, opts.setup_target.as_ref());
+    print_changes_table(changes, opts.latest);
 
+    if opts.dry_run {
+        display::info("No changes written (--dry-run).");
+        return Ok(());
+    }
+
+    // Download changed packages
+    let dl_pb = install::make_spinner();
+    let names: Vec<&str> = changes.iter().map(|c| c.name.as_str()).collect();
+    install::download_resolved_subset(client, result, &names, cwd, &dl_pb).await?;
+    dl_pb.finish_and_clear();
+
+    // Save lockfile
+    let lf = install::build_lockfile(result);
+    lockfile::save(cwd, &lf)?;
+
+    // If --latest, update manifest ranges
+    if opts.latest {
+        let mut updated_manifest = m;
+        if let Some(ref mut manifest_deps) = updated_manifest.dependencies {
+            for change in changes {
+                if manifest_deps.contains_key(&change.name) {
+                    manifest_deps.insert(change.name.clone(), change.new_range.clone());
+                }
+            }
+        }
+        manifest::save(cwd, &updated_manifest)?;
+    }
+
+    let pkg_word = if changes.len() == 1 {
+        "package"
+    } else {
+        "packages"
+    };
+    display::success(&format!("Updated {} {pkg_word}.", changes.len()));
+    Ok(())
+}
+
+pub async fn run(opts: UpdateOptions<'_>) -> Result<(), AppError> {
+    let cwd = env::current_dir()?;
+    let m = manifest::load(&cwd)?;
+
+    if m.dependencies.as_ref().is_none_or(|d| d.is_empty()) {
+        display::info("No dependencies to update.");
+        return Ok(());
+    }
+
+    let plan = plan_resolution(&opts, &m, &cwd)?;
+
+    let client = ApiClient::new(opts.registry)?;
+    let pb = install::make_spinner();
+    pb.set_message("Resolving dependencies...");
+    let result = resolver::resolve(
+        &client,
+        &plan.resolution_deps,
+        plan.filtered_lockfile.as_ref(),
+        &pb,
+        &cwd,
+    )
+    .await?;
+    pb.finish_and_clear();
+
+    let changes = compute_changes(
+        &plan.targets,
+        &plan.deps,
+        &result,
+        plan.existing_lockfile.as_ref(),
+    );
+
+    apply_changes(&changes, &result, m, &opts, &cwd, &client).await?;
+
+    install::run_setup_for_result(&result, &cwd, opts.setup_target.as_ref());
     Ok(())
 }
 
@@ -377,6 +432,92 @@ mod tests {
     fn test_print_changes_table_empty() {
         print_changes_table(&[], false);
         print_changes_table(&[], true);
+    }
+
+    // --- compute_changes tests (pure function, no I/O) ---
+
+    fn make_resolved(name: &str, version: &str) -> (String, resolver::ResolvedPackage) {
+        (
+            name.to_string(),
+            resolver::ResolvedPackage {
+                version: version.to_string(),
+                tarball_url: format!("https://example.test/{name}/{version}/tarball"),
+                integrity: format!("sha256-{name}-{version}"),
+                package_type: "skill".to_string(),
+                dependencies: BTreeMap::new(),
+                peer_dependencies: BTreeMap::new(),
+            },
+        )
+    }
+
+    fn make_result(packages: &[(&str, &str)]) -> resolver::ResolutionResult {
+        resolver::ResolutionResult {
+            packages: packages.iter().map(|&(n, v)| make_resolved(n, v)).collect(),
+        }
+    }
+
+    fn make_deps(entries: &[(&str, &str)]) -> BTreeMap<String, String> {
+        entries
+            .iter()
+            .map(|&(n, r)| (n.to_string(), r.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn test_compute_changes_no_op_same_version() {
+        let targets = vec!["foo".to_string()];
+        let deps = make_deps(&[("foo", "^1.0.0")]);
+        let result = make_result(&[("foo", "1.0.0")]);
+        let lockfile = make_lockfile(&[("foo", "1.0.0")]);
+
+        let changes = compute_changes(&targets, &deps, &result, Some(&lockfile));
+
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn test_compute_changes_version_advance() {
+        let targets = vec!["foo".to_string()];
+        let deps = make_deps(&[("foo", "^1.0.0")]);
+        let result = make_result(&[("foo", "1.0.1")]);
+        let lockfile = make_lockfile(&[("foo", "1.0.0")]);
+
+        let changes = compute_changes(&targets, &deps, &result, Some(&lockfile));
+
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].name, "foo");
+        assert_eq!(changes[0].current, "1.0.0");
+        assert_eq!(changes[0].updated, "1.0.1");
+        assert_eq!(changes[0].old_range, "^1.0.0");
+        assert_eq!(changes[0].new_range, "^1.0.1");
+    }
+
+    #[test]
+    fn test_compute_changes_first_install_current_is_em_dash() {
+        // Target resolves but has no prior lockfile entry → `current` becomes "—".
+        let targets = vec!["foo".to_string()];
+        let deps = make_deps(&[("foo", "^1.0.0")]);
+        let result = make_result(&[("foo", "1.0.0")]);
+
+        let changes = compute_changes(&targets, &deps, &result, None);
+
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].current, "—");
+        assert_eq!(changes[0].updated, "1.0.0");
+    }
+
+    #[test]
+    fn test_compute_changes_mixed_outcomes_only_keeps_changed() {
+        // foo advances 1.0.0 → 1.1.0; bar stays at 2.0.0 → dropped from changes.
+        let targets = vec!["foo".to_string(), "bar".to_string()];
+        let deps = make_deps(&[("foo", "^1.0.0"), ("bar", "^2.0.0")]);
+        let result = make_result(&[("foo", "1.1.0"), ("bar", "2.0.0")]);
+        let lockfile = make_lockfile(&[("foo", "1.0.0"), ("bar", "2.0.0")]);
+
+        let changes = compute_changes(&targets, &deps, &result, Some(&lockfile));
+
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].name, "foo");
     }
 
     // --- async tests for run() ---

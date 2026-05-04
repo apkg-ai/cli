@@ -46,12 +46,48 @@ fn resolve_registry(registry_arg: Option<&str>, settings: &Settings) -> String {
         .unwrap_or_else(|| crate::config::DEFAULT_REGISTRY.to_string())
 }
 
+fn prompt_mfa_code() -> Result<String, AppError> {
+    display::info("MFA is enabled for this account.");
+    Input::new()
+        .with_prompt("Enter TOTP code or recovery code")
+        .interact_text()
+        .map_err(|e| AppError::Other(format!("Input error: {e}")))
+}
+
+async fn complete_mfa_challenge(
+    client: &ApiClient,
+    mfa_token: &str,
+    code: &str,
+) -> Result<(String, String), AppError> {
+    let resp = client.mfa_challenge(mfa_token, code).await?;
+    Ok((resp.access_token, resp.refresh_token))
+}
+
+fn persist_credentials(
+    registry_arg: Option<&str>,
+    username: &str,
+    access_token: String,
+    refresh_token: String,
+) -> Result<(), AppError> {
+    let settings = Settings::load()?;
+    let registry_url = resolve_registry(registry_arg, &settings);
+
+    credentials::save(&Credentials {
+        registry: registry_url,
+        access_token,
+        refresh_token,
+        username: username.to_string(),
+    })?;
+
+    display::success(&format!("Logged in as {username}"));
+    Ok(())
+}
+
 pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
     let username: String = Input::new()
         .with_prompt("Username")
         .interact_text()
         .map_err(|e| AppError::Other(format!("Input error: {e}")))?;
-
     let password: String = Password::new()
         .with_prompt("Password")
         .interact()
@@ -66,35 +102,22 @@ pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
             refresh_token,
         } => (access_token, refresh_token),
         TokenOutcome::MfaRequired { mfa_token } => {
-            display::info("MFA is enabled for this account.");
-            let code: String = Input::new()
-                .with_prompt("Enter TOTP code or recovery code")
-                .interact_text()
-                .map_err(|e| AppError::Other(format!("Input error: {e}")))?;
-
-            let mfa_resp = client.mfa_challenge(&mfa_token, &code).await?;
-            (mfa_resp.access_token, mfa_resp.refresh_token)
+            let code = prompt_mfa_code()?;
+            complete_mfa_challenge(&client, &mfa_token, &code).await?
         }
     };
 
-    let settings = Settings::load()?;
-    let registry_url = resolve_registry(registry, &settings);
-
-    credentials::save(&Credentials {
-        registry: registry_url,
-        access_token,
-        refresh_token,
-        username: username.clone(),
-    })?;
-
-    display::success(&format!("Logged in as {username}"));
-    Ok(())
+    persist_credentials(registry, &username, access_token, refresh_token)
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::await_holding_lock)] // ENV_LOCK guard held across mock-server awaits; see src/api/client.rs tests block for rationale.
+
     use super::*;
     use crate::test_utils::env_lock;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn make_response(
         access_token: Option<&str>,
@@ -244,5 +267,114 @@ mod tests {
         let settings = Settings::default();
         let result = resolve_registry(None, &settings);
         assert_eq!(result, crate::config::DEFAULT_REGISTRY);
+    }
+
+    // --- persist_credentials tests ---
+
+    #[test]
+    fn test_persist_credentials_writes_file_with_cli_registry() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+        unsafe { std::env::remove_var("APKG_REGISTRY") };
+
+        persist_credentials(
+            Some("http://override.test"),
+            "alice",
+            "tok_abc".to_string(),
+            "rt_def".to_string(),
+        )
+        .unwrap();
+
+        let loaded = credentials::load().unwrap().expect("credentials written");
+        assert_eq!(loaded.registry, "http://override.test");
+        assert_eq!(loaded.username, "alice");
+        assert_eq!(loaded.access_token, "tok_abc");
+        assert_eq!(loaded.refresh_token, "rt_def");
+    }
+
+    #[test]
+    fn test_persist_credentials_defaults_to_settings_registry() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+        unsafe { std::env::remove_var("APKG_REGISTRY") };
+
+        let settings = Settings {
+            registry: Some("http://settings.test".to_string()),
+            ..Default::default()
+        };
+        settings.save().unwrap();
+
+        persist_credentials(None, "alice", "tok".to_string(), "rt".to_string()).unwrap();
+
+        let loaded = credentials::load().unwrap().expect("credentials written");
+        assert_eq!(loaded.registry, "http://settings.test");
+    }
+
+    #[test]
+    fn test_persist_credentials_falls_back_to_default_registry() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+        unsafe { std::env::remove_var("APKG_REGISTRY") };
+
+        persist_credentials(None, "alice", "tok".to_string(), "rt".to_string()).unwrap();
+
+        let loaded = credentials::load().unwrap().expect("credentials written");
+        assert_eq!(loaded.registry, crate::config::DEFAULT_REGISTRY);
+    }
+
+    // --- complete_mfa_challenge tests ---
+
+    #[tokio::test]
+    async fn test_complete_mfa_challenge_success() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/auth/mfa/challenge"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "accessToken": "tok_mfa",
+                "refreshToken": "rt_mfa",
+                "expiresIn": 3600,
+                "tokenType": "Bearer"
+            })))
+            .mount(&server)
+            .await;
+
+        let client = ApiClient::new(Some(&server.uri())).unwrap();
+        let (access, refresh) = complete_mfa_challenge(&client, "mfa_tok", "123456")
+            .await
+            .unwrap();
+        assert_eq!(access, "tok_mfa");
+        assert_eq!(refresh, "rt_mfa");
+    }
+
+    #[tokio::test]
+    async fn test_complete_mfa_challenge_returns_error_on_server_failure() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/auth/mfa/challenge"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let client = ApiClient::new(Some(&server.uri())).unwrap();
+        let err = complete_mfa_challenge(&client, "mfa_tok", "wrong")
+            .await
+            .unwrap_err();
+        // Should surface as an API / network error, not silently succeed.
+        let msg = err.to_string().to_lowercase();
+        assert!(
+            msg.contains("error") || msg.contains("500"),
+            "unexpected error message: {err}"
+        );
     }
 }

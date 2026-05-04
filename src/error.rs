@@ -37,11 +37,6 @@ pub enum AppError {
     )]
     ManifestNotFound,
 
-    #[error("Validation error: {0}")]
-    #[diagnostic(code(apkg::validation))]
-    #[allow(dead_code)]
-    Validation(String),
-
     #[error("File already exists: {0}")]
     #[diagnostic(code(apkg::file_exists), help("Use --force to overwrite."))]
     FileExists(String),

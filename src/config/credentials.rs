@@ -60,6 +60,7 @@ pub fn remove() -> Result<bool, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::env_lock;
 
     fn sample_credentials() -> Credentials {
         Credentials {
@@ -104,7 +105,7 @@ mod tests {
 
     #[test]
     fn test_load_returns_none_when_missing() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
 
@@ -114,7 +115,7 @@ mod tests {
 
     #[test]
     fn test_load_reads_existing_file() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
 
@@ -129,7 +130,7 @@ mod tests {
 
     #[test]
     fn test_save_creates_parent_dir_and_file() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
 
@@ -146,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_remove_returns_true_when_file_exists() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
 
@@ -159,7 +160,7 @@ mod tests {
 
     #[test]
     fn test_remove_returns_false_when_missing() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
 
@@ -172,7 +173,7 @@ mod tests {
     fn test_save_sets_unix_permissions_to_0600() {
         use std::os::unix::fs::PermissionsExt;
 
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
 

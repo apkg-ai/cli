@@ -93,6 +93,7 @@ mod tests {
     #![allow(clippy::await_holding_lock)] // ENV_LOCK guard held across mock-server awaits; see src/api/client.rs tests block for rationale.
 
     use super::*;
+    use crate::test_utils::env_lock;
     use wiremock::matchers::{method, path_regex};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -103,7 +104,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_json_output() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -136,7 +137,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_human_output() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -174,7 +175,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_empty_results() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -199,7 +200,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_single_result() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;

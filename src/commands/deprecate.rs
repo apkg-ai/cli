@@ -36,6 +36,7 @@ mod tests {
     #![allow(clippy::await_holding_lock)] // ENV_LOCK guard held across mock-server awaits; see src/api/client.rs tests block for rationale.
 
     use super::*;
+    use crate::test_utils::env_lock;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -46,7 +47,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deprecate_package_with_message() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -73,7 +74,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deprecate_version_with_message() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -97,7 +98,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_undeprecate_package() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -123,7 +124,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_undeprecate_version() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;

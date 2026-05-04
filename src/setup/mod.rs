@@ -507,6 +507,7 @@ pub fn display_report(report: &SetupReport) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::env_lock;
     use tempfile::TempDir;
 
     /// Run a closure with HOME pointing at a fresh temp directory so that
@@ -515,7 +516,7 @@ mod tests {
     where
         F: FnOnce(),
     {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
         f();

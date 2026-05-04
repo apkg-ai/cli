@@ -127,6 +127,7 @@ mod tests {
     #![allow(clippy::await_holding_lock)] // ENV_LOCK guard held across mock-server awaits; see src/api/client.rs tests block for rationale.
 
     use super::*;
+    use crate::test_utils::env_lock;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -153,7 +154,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_unpublishable_type() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         write_manifest(tmp.path(), "@user/proj", "project");
@@ -168,7 +169,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_invalid_name() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         write_manifest(tmp.path(), "unscoped-name", "skill");
@@ -183,7 +184,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         write_manifest(tmp.path(), "@user/my-skill", "skill");
@@ -208,7 +209,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_scope_mismatch_warning() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         // Create credentials with a different username than scope
@@ -278,7 +279,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_sends_repository_and_homepage() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         write_manifest_with(
@@ -311,7 +312,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_inlines_readme_content() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         write_manifest_with(tmp.path(), serde_json::json!({ "readme": "README.md" }));
@@ -338,7 +339,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_errors_when_readme_exceeds_cap() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         write_manifest_with(tmp.path(), serde_json::json!({ "readme": "README.md" }));
@@ -358,7 +359,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_errors_when_readme_file_missing() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         write_manifest_with(tmp.path(), serde_json::json!({ "readme": "MISSING.md" }));

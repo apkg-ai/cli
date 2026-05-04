@@ -77,6 +77,7 @@ fn validate_key(key: &str) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::env_lock;
 
     #[test]
     fn test_validate_key_registry() {
@@ -133,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_run_set_persists_value() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
 
@@ -152,7 +153,7 @@ mod tests {
 
     #[test]
     fn test_run_get_returns_ok_when_set() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
 
@@ -167,7 +168,7 @@ mod tests {
 
     #[test]
     fn test_run_get_errors_when_unset() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
 
@@ -177,7 +178,7 @@ mod tests {
 
     #[test]
     fn test_run_list_empty_settings() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
 
@@ -186,7 +187,7 @@ mod tests {
 
     #[test]
     fn test_run_list_with_entries() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
 
@@ -206,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_run_delete_removes_value() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
 
@@ -223,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_run_delete_errors_when_unset() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
 

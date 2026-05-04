@@ -305,6 +305,7 @@ mod tests {
 
     use super::*;
     use crate::api::types::{DistInfo, PackageMetadata, VersionMetadata};
+    use crate::test_utils::env_lock;
 
     fn make_version(version: &str, yanked: bool) -> VersionMetadata {
         VersionMetadata {
@@ -516,7 +517,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_from_lockfile() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -555,7 +556,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_conflict_with_already_resolved() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -617,7 +618,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_lockfile_with_transitive_deps() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -674,7 +675,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_package_not_found() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -697,7 +698,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_compatible_duplicate_request() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;

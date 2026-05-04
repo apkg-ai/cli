@@ -94,12 +94,13 @@ pub fn list() -> Result<Vec<LinkEntry>, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::env_lock;
 
     fn with_temp_home<F>(f: F)
     where
         F: FnOnce(),
     {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", tmp.path()) };
         f();

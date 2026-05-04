@@ -15,13 +15,7 @@ pub fn run() -> Result<(), AppError> {
 mod tests {
     use super::*;
     use crate::config::credentials::Credentials;
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        match crate::test_utils::ENV_LOCK.lock() {
-            Ok(g) => g,
-            Err(poisoned) => poisoned.into_inner(),
-        }
-    }
+    use crate::test_utils::env_lock;
 
     #[test]
     fn test_run_when_not_logged_in() {

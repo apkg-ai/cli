@@ -44,19 +44,27 @@ pub fn write_tarball(path: &Path, data: &[u8]) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Hard cap on decompressed tarball size — guards against zstd bombs. Real
+/// packages observed in the wild are 8-32 KB; 2 MB gives ~60× headroom while
+/// keeping a malicious package from filling the disk before extraction fails.
+const MAX_DECOMPRESSED_BYTES: u64 = 2 * 1024 * 1024;
+
 /// Extract a `.tar.zst` tarball into the given directory.
 pub fn extract_tarball(data: &[u8], dest: &Path) -> Result<(), AppError> {
-    use std::io::Cursor;
+    use std::io::{Cursor, Read};
 
     fs::create_dir_all(dest)?;
 
     let cursor = Cursor::new(data);
     let decoder = zstd::Decoder::new(cursor)
         .map_err(|e| AppError::Other(format!("Failed to create zstd decoder: {e}")))?;
-    let mut archive = tar::Archive::new(decoder);
-    archive
-        .unpack(dest)
-        .map_err(|e| AppError::Other(format!("Failed to extract tarball: {e}")))?;
+    let capped = decoder.take(MAX_DECOMPRESSED_BYTES);
+    let mut archive = tar::Archive::new(capped);
+    archive.unpack(dest).map_err(|e| {
+        AppError::Other(format!(
+            "Failed to extract tarball (decompressed size exceeds {MAX_DECOMPRESSED_BYTES}-byte cap, or archive is malformed): {e}"
+        ))
+    })?;
 
     Ok(())
 }
@@ -281,5 +289,47 @@ mod tests {
         extract_tarball(&tarball, &extract_dir).unwrap();
         assert!(extract_dir.join("apkg.json").exists());
         assert!(!extract_dir.join(".git").exists());
+    }
+
+    #[test]
+    fn test_extract_tarball_rejects_payload_exceeding_cap() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+
+        // Produce a file larger than the 2 MB cap. Highly compressible (zeros)
+        // simulates a zstd-bomb: small compressed, large decompressed.
+        let payload = vec![0u8; (MAX_DECOMPRESSED_BYTES as usize) + 4096];
+        fs::write(dir.join("huge.bin"), &payload).unwrap();
+
+        let tarball = create_tarball(dir).unwrap();
+        assert!(
+            (tarball.len() as u64) < MAX_DECOMPRESSED_BYTES,
+            "compressed tarball should be far smaller than decompressed payload"
+        );
+
+        let extract_dir = tmp.path().join("extracted");
+        let err = extract_tarball(&tarball, &extract_dir).unwrap_err();
+        assert!(
+            err.to_string().contains("cap") || err.to_string().contains("Failed to extract"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_extract_tarball_accepts_payload_under_cap() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+
+        // Well under 2 MB — should extract cleanly.
+        let payload = vec![0u8; 512 * 1024];
+        fs::write(dir.join("medium.bin"), &payload).unwrap();
+
+        let tarball = create_tarball(dir).unwrap();
+        let extract_dir = tmp.path().join("extracted");
+        extract_tarball(&tarball, &extract_dir).unwrap();
+        assert_eq!(
+            fs::metadata(extract_dir.join("medium.bin")).unwrap().len(),
+            payload.len() as u64
+        );
     }
 }

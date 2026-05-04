@@ -349,6 +349,27 @@ mod tests {
     use crate::config::lockfile::{LockedPackage, LOCKFILE_VERSION};
     use crate::resolver::{ResolutionResult, ResolvedPackage};
 
+    /// Acquire `ENV_LOCK` tolerating poisoning. A prior test that panicked
+    /// while holding the lock would otherwise cascade into every subsequent
+    /// test; we accept the prior state and move on.
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        match crate::test_utils::ENV_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// Restores CWD to the crate root on drop. Must be declared **after** the
+    /// tempdir in a test so it drops *before* the tempdir is deleted —
+    /// otherwise CWD is left pointing at a path that no longer exists, which
+    /// poisons ENV_LOCK for the next test that calls `env::current_dir()`.
+    struct CwdGuard;
+    impl Drop for CwdGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(env!("CARGO_MANIFEST_DIR"));
+        }
+    }
+
     fn make_resolved(name: &str, version: &str) -> (String, ResolvedPackage) {
         (
             name.to_string(),
@@ -595,10 +616,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_install_all_empty_deps() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         write_project_manifest(tmp.path(), &[]);
+        let _cwd = CwdGuard;
         std::env::set_current_dir(tmp.path()).unwrap();
 
         let result = run(InstallOptions {
@@ -613,10 +635,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_install_all_frozen_no_lockfile() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         write_project_manifest(tmp.path(), &[("foo", "^1.0.0")]);
+        let _cwd = CwdGuard;
         std::env::set_current_dir(tmp.path()).unwrap();
 
         let server = MockServer::start().await;

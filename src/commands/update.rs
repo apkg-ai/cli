@@ -291,6 +291,17 @@ mod tests {
     use super::*;
     use crate::config::lockfile::{LockedPackage, Lockfile, LOCKFILE_VERSION};
     use crate::test_utils::env_lock;
+    use wiremock::matchers::{method, path, path_regex};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// Restores CWD to the crate root on drop. Declare **after** the tempdir
+    /// in a test so it drops *before* the tempdir is deleted.
+    struct CwdGuard;
+    impl Drop for CwdGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(env!("CARGO_MANIFEST_DIR"));
+        }
+    }
 
     fn make_lockfile(entries: &[(&str, &str)]) -> Lockfile {
         let mut packages = BTreeMap::new();
@@ -462,5 +473,193 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("not in dependencies"));
+    }
+
+    // --- End-to-end tests via wiremock ---
+
+    /// Minimal `.tar.zst` with a single `apkg.json` so resolver's extract-to-
+    /// discover-deps path works cleanly.
+    fn make_test_tarball() -> Vec<u8> {
+        use std::io::Write;
+        let buf = Vec::new();
+        let enc = zstd::Encoder::new(buf, 3).unwrap();
+        let mut archive = tar::Builder::new(enc);
+        let content = br#"{"name":"dummy","version":"1.0.0","type":"skill","description":"","license":"MIT","platform":["claude"]}"#;
+        let mut header = tar::Header::new_gnu();
+        header.set_size(content.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        archive
+            .append_data(&mut header, "apkg.json", &content[..])
+            .unwrap();
+        let enc = archive.into_inner().unwrap();
+        let mut enc = enc;
+        enc.flush().unwrap();
+        enc.finish().unwrap()
+    }
+
+    /// Build a `PackageMetadata` JSON that satisfies the resolver:
+    ///   - `distTags.latest` points to `version`
+    ///   - `versions[version]` has the `dist.integrity` the resolver checks
+    fn package_metadata_json(name: &str, version: &str, integrity: &str) -> serde_json::Value {
+        serde_json::json!({
+            "name": name,
+            "distTags": { "latest": version },
+            "versions": {
+                version: {
+                    "version": version,
+                    "type": "skill",
+                    "dist": {
+                        "tarball": format!("https://example.test/{name}/{version}/tarball"),
+                        "integrity": integrity,
+                    },
+                    "dependencies": {}
+                }
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn test_update_dry_run_reports_no_changes_when_up_to_date() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let _cwd = CwdGuard;
+
+        let tarball = make_test_tarball();
+        let integrity = crate::util::integrity::sha256_integrity(&tarball);
+
+        write_project_manifest(tmp.path(), &[("foo", "^1.0.0")]);
+        // Seed lockfile at 1.0.0 — resolver filters it, but the server returns
+        // the same version → no change.
+        let seeded = make_lockfile(&[("foo", "1.0.0")]);
+        lockfile::save(tmp.path(), &seeded).unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/foo"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(package_metadata_json("foo", "1.0.0", &integrity)),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/foo/1\\.0\\.0/tarball"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(tarball.clone()))
+            .mount(&server)
+            .await;
+
+        let result = run(UpdateOptions {
+            package: Some("foo"),
+            registry: Some(&server.uri()),
+            latest: false,
+            dry_run: true,
+            setup_target: None,
+        })
+        .await;
+
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_update_writes_lockfile_when_version_advances() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let _cwd = CwdGuard;
+
+        let tarball = make_test_tarball();
+        let integrity = crate::util::integrity::sha256_integrity(&tarball);
+
+        // Seed lockfile at 1.0.0, server advertises 1.0.1 → update should
+        // resolve to 1.0.1, download, and save a new lockfile entry.
+        write_project_manifest(tmp.path(), &[("foo", "^1.0.0")]);
+        let seeded = make_lockfile(&[("foo", "1.0.0")]);
+        lockfile::save(tmp.path(), &seeded).unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/foo"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(package_metadata_json("foo", "1.0.1", &integrity)),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/foo/1\\.0\\.1/tarball"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(tarball.clone()))
+            .mount(&server)
+            .await;
+
+        let result = run(UpdateOptions {
+            package: Some("foo"),
+            registry: Some(&server.uri()),
+            latest: false,
+            dry_run: false,
+            setup_target: None,
+        })
+        .await;
+
+        assert!(result.is_ok(), "{:?}", result.err());
+
+        // Lockfile should now reference 1.0.1.
+        let lf = lockfile::load(tmp.path()).unwrap().unwrap();
+        assert!(
+            lf.packages.contains_key("foo@1.0.1"),
+            "lockfile missing updated version: {:?}",
+            lf.packages.keys().collect::<Vec<_>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_update_latest_rewrites_manifest_range() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let _cwd = CwdGuard;
+
+        let tarball = make_test_tarball();
+        let integrity = crate::util::integrity::sha256_integrity(&tarball);
+
+        // Manifest pins ^1.0.0; --latest + a 2.0.0 server version should
+        // rewrite the manifest range to ^2.0.0.
+        write_project_manifest(tmp.path(), &[("foo", "^1.0.0")]);
+        let seeded = make_lockfile(&[("foo", "1.0.0")]);
+        lockfile::save(tmp.path(), &seeded).unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/foo"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(package_metadata_json("foo", "2.0.0", &integrity)),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/foo/2\\.0\\.0/tarball"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(tarball.clone()))
+            .mount(&server)
+            .await;
+
+        let result = run(UpdateOptions {
+            package: Some("foo"),
+            registry: Some(&server.uri()),
+            latest: true,
+            dry_run: false,
+            setup_target: None,
+        })
+        .await;
+
+        assert!(result.is_ok(), "{:?}", result.err());
+
+        // Manifest range should be rewritten to ^2.0.0.
+        let m = manifest::load(tmp.path()).unwrap();
+        assert_eq!(m.dependencies.unwrap().get("foo").unwrap(), "^2.0.0");
     }
 }

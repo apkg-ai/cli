@@ -1,4 +1,5 @@
 use std::env;
+use std::path::Path;
 
 use indicatif::{ProgressBar, ProgressStyle};
 
@@ -13,59 +14,37 @@ use crate::util::{display, integrity, tarball};
 /// Mirror of the server's `readme` size cap (`publishMetadataSchema.readme.max`).
 const MAX_README_BYTES: usize = 20_480;
 
-pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
-    let cwd = env::current_dir()?;
-    let m = manifest::load(&cwd)?;
-
-    if !m.package_type.is_publishable() {
-        return Err(AppError::Other(
-            "Cannot publish a project. Only skill, agent, command, and rule packages can be published.".to_string(),
-        ));
+/// Returns a warning to display when the manifest's scope doesn't match the
+/// logged-in username — publish may still succeed if the user is an
+/// organization member, but this catches the common typo. Returns `None` if
+/// the scope matches, the package name is unscoped, or malformed.
+fn check_scope_match(package_name: &str, username: &str) -> Option<String> {
+    let slash = package_name.find('/')?;
+    if !package_name.starts_with('@') || slash <= 1 {
+        return None;
     }
-
-    // Validate package name is scoped
-    let re = Regex::new(r"^@[a-z0-9-]+/[a-z0-9]([a-z0-9._-]*[a-z0-9])?$").unwrap();
-    if !re.is_match(&m.name) {
-        return Err(AppError::Other(format!(
-            "Package name '{}' must be scoped: @username/name or @org/name",
-            m.name
-        )));
+    let scope = &package_name[1..slash];
+    if scope.eq_ignore_ascii_case(username) {
+        return None;
     }
+    Some(format!(
+        "Scope '@{scope}' does not match your username '{username}'. Publishing will succeed only if you are a member of the '@{scope}' organization."
+    ))
+}
 
-    // Warn if scope doesn't match the logged-in user
-    if let Ok(Some(creds)) = credentials::load() {
-        let scope = &m.name[1..m.name.find('/').unwrap()];
-        if !scope.eq_ignore_ascii_case(&creds.username) {
-            display::warn(&format!(
-                "Scope '@{}' does not match your username '{}'. Publishing will succeed only if you are a member of the '@{}' organization.",
-                scope, creds.username, scope
-            ));
-        }
-    }
-
-    display::info(&format!("Publishing {}@{} ...", m.name, m.version));
-
-    let pb = ProgressBar::new_spinner();
-    pb.set_style(
-        ProgressStyle::with_template("{spinner:.cyan} {msg}")
-            .unwrap()
-            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-    );
-    pb.set_message("Creating tarball...");
-    pb.enable_steady_tick(std::time::Duration::from_millis(80));
-
-    let data = tarball::create_tarball(&cwd)?;
-    let hash = integrity::sha256_integrity(&data);
-    let size = data.len();
-
-    pb.set_message("Uploading to registry...");
-
-    // Build metadata with only the fields the publish API accepts
+/// Build the JSON metadata blob the publish API expects. Pure-ish: reads the
+/// readme file from disk when `m.readme` is set, but has no network I/O and
+/// does not emit user-visible warnings (the caller handles those).
+fn build_publish_metadata(
+    m: &manifest::Manifest,
+    integrity: &str,
+    cwd: &Path,
+) -> Result<serde_json::Value, AppError> {
     let mut metadata = serde_json::json!({
         "name": m.name,
         "version": m.version,
         "type": m.package_type,
-        "integrity": hash,
+        "integrity": integrity,
     });
     let obj = metadata.as_object_mut().unwrap();
     if !m.description.is_empty() {
@@ -101,11 +80,56 @@ pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
     if let Some(deps) = &m.dependencies {
         obj.insert("dependencies".into(), serde_json::json!(deps));
     }
+    obj.insert("platform".into(), serde_json::json!(m.platform));
+    Ok(metadata)
+}
+
+pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
+    let cwd = env::current_dir()?;
+    let m = manifest::load(&cwd)?;
+
+    if !m.package_type.is_publishable() {
+        return Err(AppError::Other(
+            "Cannot publish a project. Only skill, agent, command, and rule packages can be published.".to_string(),
+        ));
+    }
+
+    // Validate package name is scoped
+    let re = Regex::new(r"^@[a-z0-9-]+/[a-z0-9]([a-z0-9._-]*[a-z0-9])?$").unwrap();
+    if !re.is_match(&m.name) {
+        return Err(AppError::Other(format!(
+            "Package name '{}' must be scoped: @username/name or @org/name",
+            m.name
+        )));
+    }
+
+    if let Ok(Some(creds)) = credentials::load() {
+        if let Some(msg) = check_scope_match(&m.name, &creds.username) {
+            display::warn(&msg);
+        }
+    }
+
+    display::info(&format!("Publishing {}@{} ...", m.name, m.version));
+
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::with_template("{spinner:.cyan} {msg}")
+            .unwrap()
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+    );
+    pb.set_message("Creating tarball...");
+    pb.enable_steady_tick(std::time::Duration::from_millis(80));
+
+    let data = tarball::create_tarball(&cwd)?;
+    let hash = integrity::sha256_integrity(&data);
+    let size = data.len();
+
+    pb.set_message("Uploading to registry...");
+
     for warning in validate_platforms(&m.platform) {
         display::warn(&warning);
     }
-    obj.insert("platform".into(), serde_json::json!(m.platform));
-
+    let metadata = build_publish_metadata(&m, &hash, &cwd)?;
     let metadata_json = serde_json::to_string(&metadata)?;
     let client = ApiClient::new(registry)?;
     let resp = client.publish(&m.name, &metadata_json, data).await?;
@@ -369,5 +393,139 @@ mod tests {
         let server = MockServer::start().await;
         let err = run(Some(&server.uri())).await.unwrap_err();
         assert!(err.to_string().contains("Failed to read readme file"));
+    }
+
+    // --- check_scope_match (pure) ---
+
+    #[test]
+    fn test_check_scope_match_returns_none_when_matches() {
+        assert_eq!(check_scope_match("@alice/pkg", "alice"), None);
+    }
+
+    #[test]
+    fn test_check_scope_match_case_insensitive() {
+        assert_eq!(check_scope_match("@Alice/pkg", "alice"), None);
+        assert_eq!(check_scope_match("@alice/pkg", "ALICE"), None);
+    }
+
+    #[test]
+    fn test_check_scope_match_returns_warning_on_mismatch() {
+        let msg = check_scope_match("@bob/pkg", "alice").expect("should warn");
+        assert!(msg.contains("@bob"));
+        assert!(msg.contains("alice"));
+    }
+
+    #[test]
+    fn test_check_scope_match_returns_none_on_unscoped() {
+        assert_eq!(check_scope_match("no-scope", "alice"), None);
+        assert_eq!(check_scope_match("@/pkg", "alice"), None);
+    }
+
+    // --- build_publish_metadata (near-pure: reads readme from disk) ---
+
+    fn minimal_manifest() -> manifest::Manifest {
+        manifest::Manifest {
+            name: "@test/pkg".to_string(),
+            version: "1.0.0".to_string(),
+            package_type: manifest::PackageType::Skill,
+            description: String::new(),
+            license: String::new(),
+            readme: None,
+            keywords: None,
+            authors: None,
+            repository: None,
+            homepage: None,
+            platform: vec!["claude-code".to_string()],
+            dependencies: None,
+            dev_dependencies: None,
+            peer_dependencies: None,
+            scripts: None,
+            hook_permissions: None,
+        }
+    }
+
+    #[test]
+    fn test_build_publish_metadata_minimal_manifest() {
+        let tmp = tempfile::tempdir().unwrap();
+        let m = minimal_manifest();
+
+        let metadata = build_publish_metadata(&m, "sha256-xyz", tmp.path()).unwrap();
+        let obj = metadata.as_object().unwrap();
+
+        assert_eq!(obj.get("name").unwrap(), "@test/pkg");
+        assert_eq!(obj.get("version").unwrap(), "1.0.0");
+        assert_eq!(obj.get("integrity").unwrap(), "sha256-xyz");
+        assert!(obj.contains_key("type"));
+        assert!(obj.contains_key("platform"));
+        // Optionals absent when empty / None:
+        assert!(!obj.contains_key("description"));
+        assert!(!obj.contains_key("license"));
+        assert!(!obj.contains_key("keywords"));
+        assert!(!obj.contains_key("repository"));
+        assert!(!obj.contains_key("homepage"));
+        assert!(!obj.contains_key("readme"));
+        assert!(!obj.contains_key("dependencies"));
+    }
+
+    #[test]
+    fn test_build_publish_metadata_includes_optional_fields() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut m = minimal_manifest();
+        m.description = "A test package".to_string();
+        m.license = "MIT".to_string();
+        m.keywords = Some(vec!["test".to_string(), "demo".to_string()]);
+        m.repository = Some("https://github.com/test/pkg".to_string());
+        m.homepage = Some("https://example.test".to_string());
+        let mut deps = std::collections::BTreeMap::new();
+        deps.insert("dep-a".to_string(), "^1.0.0".to_string());
+        m.dependencies = Some(deps);
+
+        let metadata = build_publish_metadata(&m, "sha256-xyz", tmp.path()).unwrap();
+        let obj = metadata.as_object().unwrap();
+
+        assert_eq!(obj.get("description").unwrap(), "A test package");
+        assert_eq!(obj.get("license").unwrap(), "MIT");
+        assert_eq!(
+            obj.get("repository").unwrap(),
+            "https://github.com/test/pkg"
+        );
+        assert_eq!(obj.get("homepage").unwrap(), "https://example.test");
+        assert_eq!(
+            obj.get("keywords").unwrap(),
+            &serde_json::json!(["test", "demo"])
+        );
+        assert_eq!(
+            obj.get("dependencies").unwrap(),
+            &serde_json::json!({ "dep-a": "^1.0.0" })
+        );
+    }
+
+    #[test]
+    fn test_build_publish_metadata_inlines_readme_content() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("README.md"), "# Hello\nBody.").unwrap();
+        let mut m = minimal_manifest();
+        m.readme = Some("README.md".to_string());
+
+        let metadata = build_publish_metadata(&m, "sha256-xyz", tmp.path()).unwrap();
+        assert_eq!(
+            metadata.as_object().unwrap().get("readme").unwrap(),
+            "# Hello\nBody."
+        );
+    }
+
+    #[test]
+    fn test_build_publish_metadata_errors_on_oversized_readme() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("README.md"),
+            "a".repeat(MAX_README_BYTES + 1),
+        )
+        .unwrap();
+        let mut m = minimal_manifest();
+        m.readme = Some("README.md".to_string());
+
+        let err = build_publish_metadata(&m, "sha256-xyz", tmp.path()).unwrap_err();
+        assert!(err.to_string().contains("registry limit"));
     }
 }

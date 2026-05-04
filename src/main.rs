@@ -388,6 +388,23 @@ enum SetupTargetArg {
     // Kiro,
 }
 
+/// Collapses the `--setup`/`--no-setup` CLI flag pair into the resolved
+/// setup target used by `commands::{add,install,update}::run`.
+fn resolve_setup_target(no_setup: bool, setup: &SetupTargetArg) -> Option<setup::SetupTarget> {
+    if no_setup {
+        return None;
+    }
+    Some(match setup {
+        SetupTargetArg::All => setup::SetupTarget::All,
+        SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
+        SetupTargetArg::ClaudeCode => setup::SetupTarget::Only(setup::Tool::ClaudeCode),
+        SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
+        // TODO: re-enable when ready
+        // SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
+        // SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
+    })
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
@@ -525,19 +542,7 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             } else {
                 util::package::DepCategory::Dependencies
             };
-            let setup_target = if no_setup {
-                None
-            } else {
-                Some(match setup {
-                    SetupTargetArg::All => setup::SetupTarget::All,
-                    SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
-                    SetupTargetArg::ClaudeCode => setup::SetupTarget::Only(setup::Tool::ClaudeCode),
-                    SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
-                    // TODO: re-enable when ready
-                    // SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
-                    // SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
-                })
-            };
+            let setup_target = resolve_setup_target(no_setup, setup);
             commands::add::run(commands::add::AddOptions {
                 package,
                 registry,
@@ -620,19 +625,7 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             no_setup,
             frozen_lockfile,
         } => {
-            let setup_target = if no_setup {
-                None
-            } else {
-                Some(match setup {
-                    SetupTargetArg::All => setup::SetupTarget::All,
-                    SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
-                    SetupTargetArg::ClaudeCode => setup::SetupTarget::Only(setup::Tool::ClaudeCode),
-                    SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
-                    // TODO: re-enable when ready
-                    // SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
-                    // SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
-                })
-            };
+            let setup_target = resolve_setup_target(no_setup, setup);
             commands::install::run(commands::install::InstallOptions {
                 package: package.as_deref(),
                 registry,
@@ -661,19 +654,7 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             ref setup,
             no_setup,
         } => {
-            let setup_target = if no_setup {
-                None
-            } else {
-                Some(match setup {
-                    SetupTargetArg::All => setup::SetupTarget::All,
-                    SetupTargetArg::Cursor => setup::SetupTarget::Only(setup::Tool::Cursor),
-                    SetupTargetArg::ClaudeCode => setup::SetupTarget::Only(setup::Tool::ClaudeCode),
-                    SetupTargetArg::Codex => setup::SetupTarget::Only(setup::Tool::Codex),
-                    // TODO: re-enable when ready
-                    // SetupTargetArg::Windsurf => setup::SetupTarget::Only(setup::Tool::Windsurf),
-                    // SetupTargetArg::Kiro => setup::SetupTarget::Only(setup::Tool::Kiro),
-                })
-            };
+            let setup_target = resolve_setup_target(no_setup, setup);
             commands::update::run(commands::update::UpdateOptions {
                 package: package.as_deref(),
                 registry,

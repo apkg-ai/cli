@@ -348,16 +348,7 @@ mod tests {
     use super::*;
     use crate::config::lockfile::{LockedPackage, LOCKFILE_VERSION};
     use crate::resolver::{ResolutionResult, ResolvedPackage};
-
-    /// Acquire `ENV_LOCK` tolerating poisoning. A prior test that panicked
-    /// while holding the lock would otherwise cascade into every subsequent
-    /// test; we accept the prior state and move on.
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        match crate::test_utils::ENV_LOCK.lock() {
-            Ok(g) => g,
-            Err(poisoned) => poisoned.into_inner(),
-        }
-    }
+    use crate::test_utils::env_lock;
 
     /// Restores CWD to the crate root on drop. Must be declared **after** the
     /// tempdir in a test so it drops *before* the tempdir is deleted —
@@ -657,7 +648,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_download_or_cache_from_network() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
 
@@ -692,7 +683,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_download_or_cache_integrity_mismatch() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
 
@@ -726,7 +717,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_download_or_cache_uses_cache() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
 

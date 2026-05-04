@@ -80,6 +80,7 @@ pub fn get_user_email() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::env_lock;
 
     #[test]
     fn test_normalize_https_with_git_suffix() {
@@ -204,10 +205,7 @@ mod tests {
 
     #[test]
     fn test_get_remote_url_returns_none_when_git_missing() {
-        let _lock = match crate::test_utils::ENV_LOCK.lock() {
-            Ok(g) => g,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let _lock = env_lock();
         let _path = EnvVarGuard::set("PATH", "");
 
         assert!(get_remote_url().is_none());
@@ -215,10 +213,7 @@ mod tests {
 
     #[test]
     fn test_get_user_name_returns_none_when_git_missing() {
-        let _lock = match crate::test_utils::ENV_LOCK.lock() {
-            Ok(g) => g,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let _lock = env_lock();
         let _path = EnvVarGuard::set("PATH", "");
 
         assert!(get_user_name().is_none());
@@ -226,10 +221,7 @@ mod tests {
 
     #[test]
     fn test_get_user_email_returns_none_when_git_missing() {
-        let _lock = match crate::test_utils::ENV_LOCK.lock() {
-            Ok(g) => g,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let _lock = env_lock();
         let _path = EnvVarGuard::set("PATH", "");
 
         assert!(get_user_email().is_none());
@@ -240,10 +232,7 @@ mod tests {
         // Poisoning can happen if another test (not using ENV_LOCK) dropped a
         // tempdir that was the CWD. We only need exclusive access for the
         // duration of our own CWD change, so treat poison as acquirable.
-        let _lock = match crate::test_utils::ENV_LOCK.lock() {
-            Ok(g) => g,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         // Anchor the restore to a directory we know exists, not the (possibly
         // stale) CWD left behind by an earlier test.
@@ -259,10 +248,7 @@ mod tests {
 
     #[test]
     fn test_get_repository_url_returns_none_when_git_missing() {
-        let _lock = match crate::test_utils::ENV_LOCK.lock() {
-            Ok(g) => g,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let _lock = env_lock();
         let _path = EnvVarGuard::set("PATH", "");
 
         assert!(get_repository_url().is_none());

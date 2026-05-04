@@ -174,13 +174,7 @@ fn cleanup_empty_parents(path: &Path, stop_at: &Path) {
 mod tests {
     use super::*;
     use crate::config::manifest::{Manifest, PackageType};
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        match crate::test_utils::ENV_LOCK.lock() {
-            Ok(g) => g,
-            Err(poisoned) => poisoned.into_inner(),
-        }
-    }
+    use crate::test_utils::env_lock;
 
     fn write_manifest(dir: &Path, name: &str) {
         let m = Manifest {

@@ -411,6 +411,7 @@ mod tests {
     #![allow(clippy::await_holding_lock)] // ENV_LOCK guard held across mock-server awaits; see src/api/client.rs tests block for rationale.
 
     use super::*;
+    use crate::test_utils::env_lock;
 
     #[test]
     fn test_parse_lockfile_key_unscoped() {
@@ -650,7 +651,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_no_lockfile() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         std::env::set_current_dir(tmp.path()).unwrap();
@@ -670,7 +671,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_empty_lockfile() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         write_lockfile(tmp.path(), &[]);
@@ -698,7 +699,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_package_not_in_lockfile() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         write_lockfile(tmp.path(), &[("foo", "1.0.0", "sha256-abc")]);
@@ -719,7 +720,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_integrity_from_cache_ok() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
 
@@ -772,7 +773,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_integrity_mismatch_from_cache() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
 
@@ -824,7 +825,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_strict_fails_on_unsigned() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
 
@@ -876,7 +877,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_json_output() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
 
@@ -925,7 +926,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_all_packages_iterates_lockfile() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
 
@@ -986,7 +987,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_with_signatures_and_provenance() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
 
@@ -1056,7 +1057,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_integrity_download_path() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
 
@@ -1109,7 +1110,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_empty_integrity_in_lockfile() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
 

@@ -290,6 +290,7 @@ mod tests {
 
     use super::*;
     use crate::config::lockfile::{LockedPackage, Lockfile, LOCKFILE_VERSION};
+    use crate::test_utils::env_lock;
 
     fn make_lockfile(entries: &[(&str, &str)]) -> Lockfile {
         let mut packages = BTreeMap::new();
@@ -425,7 +426,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_empty_deps() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         write_project_manifest(tmp.path(), &[]);
@@ -444,7 +445,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_unknown_package() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         write_project_manifest(tmp.path(), &[("foo", "^1.0.0")]);

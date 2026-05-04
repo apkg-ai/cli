@@ -34,15 +34,9 @@ pub fn run() -> Result<(), AppError> {
 mod tests {
     use super::*;
     use crate::config::manifest::{Manifest, PackageType};
+    use crate::test_utils::env_lock;
     use std::fs;
     use std::path::Path;
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        match crate::test_utils::ENV_LOCK.lock() {
-            Ok(g) => g,
-            Err(poisoned) => poisoned.into_inner(),
-        }
-    }
 
     /// Anchor CWD to `CARGO_MANIFEST_DIR` on drop so a failing test doesn't
     /// leave a stale tempdir as the process CWD.

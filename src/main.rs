@@ -8,12 +8,24 @@ mod util;
 
 #[cfg(test)]
 mod test_utils {
-    use std::sync::Mutex;
+    use std::sync::{Mutex, MutexGuard};
+
     /// Global mutex for tests that modify process-global state (env vars,
     /// current directory). Every test module that touches `HOME`, `APKG_TOKEN`,
     /// `APKG_CACHE_DIR`, or calls `set_current_dir` must lock this **instead of**
     /// a per-module mutex so that tests across different modules don't race.
     pub static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Poison-tolerant `ENV_LOCK` acquisition. If a prior test panicked while
+    /// holding the guard, accept the poisoned state and return the inner
+    /// guard anyway — the lock is serializing env-var mutations, not
+    /// protecting data, so poison is uninteresting here.
+    pub fn env_lock() -> MutexGuard<'static, ()> {
+        match ENV_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
 }
 
 use std::process::ExitCode;

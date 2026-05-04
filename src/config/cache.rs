@@ -208,12 +208,13 @@ pub fn verify() -> Result<CacheVerifyResult, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::env_lock;
 
     fn with_temp_cache<F>(f: F)
     where
         F: FnOnce(),
     {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         let cache_path = tmp.path().join("cache");
         unsafe { std::env::set_var("APKG_CACHE_DIR", &cache_path) };
@@ -223,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_cache_dir_default() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         unsafe { std::env::remove_var("APKG_CACHE_DIR") };
         let dir = cache_dir().unwrap();
         assert!(dir.ends_with(".apkg/cache"));
@@ -231,7 +232,7 @@ mod tests {
 
     #[test]
     fn test_cache_dir_env_override() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         let custom = tmp.path().join("my-cache");
         unsafe { std::env::set_var("APKG_CACHE_DIR", &custom) };

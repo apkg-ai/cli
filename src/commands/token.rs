@@ -122,6 +122,7 @@ mod tests {
     #![allow(clippy::await_holding_lock)] // ENV_LOCK guard held across mock-server awaits; see src/api/client.rs tests block for rationale.
 
     use super::*;
+    use crate::test_utils::env_lock;
 
     #[test]
     fn test_token_action_create_construction() {
@@ -180,7 +181,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_token() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -213,7 +214,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_tokens_json() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -238,7 +239,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_tokens_human() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -264,7 +265,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_tokens_empty() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -282,7 +283,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_revoke_token() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -298,7 +299,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_token_with_package_scope() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;

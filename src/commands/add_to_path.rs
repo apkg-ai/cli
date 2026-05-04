@@ -188,31 +188,32 @@ fn print_instructions(rc_path: &Path, modified: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::env_lock;
 
     #[test]
     fn test_detect_shell_zsh() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         unsafe { std::env::set_var("SHELL", "/bin/zsh") };
         assert!(matches!(detect_shell(), Shell::Zsh));
     }
 
     #[test]
     fn test_detect_shell_bash() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         unsafe { std::env::set_var("SHELL", "/usr/bin/bash") };
         assert!(matches!(detect_shell(), Shell::Bash));
     }
 
     #[test]
     fn test_detect_shell_fish() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         unsafe { std::env::set_var("SHELL", "/usr/bin/fish") };
         assert!(matches!(detect_shell(), Shell::Fish));
     }
 
     #[test]
     fn test_detect_shell_fallback() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         unsafe { std::env::remove_var("SHELL") };
         // On macOS defaults to Zsh, on Linux defaults to Bash
         let shell = detect_shell();

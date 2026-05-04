@@ -559,6 +559,7 @@ mod tests {
     #![allow(clippy::await_holding_lock)]
 
     use super::*;
+    use crate::test_utils::env_lock;
     use wiremock::matchers::{method, path, path_regex};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -598,7 +599,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_url_with_registry_override() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         let client = make_test_client(&server).await;
         let url = client.url("auth", "/auth/login");
@@ -608,7 +609,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_headers_with_token() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         let client = make_test_client(&server).await;
         let headers = client.auth_headers().unwrap();
@@ -618,7 +619,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_headers_without_token() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         let client = make_unauthed_client(&server).await;
         let headers = client.auth_headers().unwrap();
@@ -627,7 +628,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_require_auth_no_token() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         let client = make_unauthed_client(&server).await;
         let result = client.require_auth_headers();
@@ -636,7 +637,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_login_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/auth/login"))
@@ -656,7 +657,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_login_mfa_required() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/auth/login"))
@@ -674,7 +675,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mfa_challenge_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/auth/mfa/challenge"))
@@ -693,7 +694,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_whoami_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/auth/whoami"))
@@ -711,7 +712,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_whoami_requires_auth() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         let client = make_unauthed_client(&server).await;
         let result = client.whoami().await;
@@ -720,7 +721,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_package_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/packages/%40scope%2Fpkg"))
@@ -739,7 +740,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_package_not_found() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/packages/nonexistent"))
@@ -755,7 +756,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_download_tarball_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/packages/mypkg/1.0.0/tarball"))
@@ -774,7 +775,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_download_tarball_not_found() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/packages/missing/0.0.1/tarball"))
@@ -790,7 +791,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path_regex("/search.*"))
@@ -810,7 +811,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("PUT"))
             .and(path("/packages/%40scope%2Fpkg"))
@@ -832,7 +833,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_key_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/auth/keys"))
@@ -851,7 +852,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_keys_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/auth/keys"))
@@ -874,7 +875,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_revoke_key_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path_regex("/auth/keys/.+/revoke"))
@@ -895,7 +896,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rotate_key_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/auth/keys/rotate"))
@@ -916,7 +917,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_token_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/auth/tokens"))
@@ -942,7 +943,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_tokens_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/auth/tokens"))
@@ -965,7 +966,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_revoke_token_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("DELETE"))
             .and(path_regex("/auth/tokens/.+"))
@@ -978,7 +979,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_dist_tag_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("PUT"))
             .and(path_regex("/packages/.+/dist-tags/.+"))
@@ -999,7 +1000,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_dist_tag_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("DELETE"))
             .and(path_regex("/packages/.+/dist-tags/.+"))
@@ -1012,7 +1013,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deprecate_package_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("PATCH"))
             .and(path("/packages/mypkg"))
@@ -1035,7 +1036,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deprecate_version_success() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("PATCH"))
             .and(path("/packages/mypkg/1.0.0"))
@@ -1055,7 +1056,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_registry_signing_keys() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/registry/signing-keys"))
@@ -1079,7 +1080,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_provenance_some() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/packages/mypkg/1.0.0/provenance"))
@@ -1095,7 +1096,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_provenance_none() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/packages/mypkg/1.0.0/provenance"))
@@ -1111,7 +1112,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_login_failure_401() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/auth/login"))

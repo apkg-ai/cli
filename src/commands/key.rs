@@ -250,6 +250,7 @@ mod tests {
     #![allow(clippy::await_holding_lock)] // ENV_LOCK guard held across mock-server awaits; see src/api/client.rs tests block for rationale.
 
     use super::*;
+    use crate::test_utils::env_lock;
 
     #[test]
     fn test_compute_key_id() {
@@ -282,7 +283,7 @@ mod tests {
 
     #[test]
     fn test_generate_key() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         // Create the keys directory
@@ -300,7 +301,7 @@ mod tests {
 
     #[test]
     fn test_list_local_keys() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         // Generate a key first
@@ -315,7 +316,7 @@ mod tests {
 
     #[test]
     fn test_list_local_empty() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         std::fs::create_dir_all(tmp.path().join(".apkg").join("keys")).unwrap();
@@ -325,7 +326,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_remote_keys() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -349,7 +350,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_remote_empty() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         let server = MockServer::start().await;
@@ -367,7 +368,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_no_local_keys() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         std::fs::create_dir_all(tmp.path().join(".apkg").join("keys")).unwrap();
@@ -386,7 +387,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_single_key() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         std::fs::create_dir_all(tmp.path().join(".apkg").join("keys")).unwrap();
@@ -417,7 +418,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_revoke_key() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         std::fs::create_dir_all(tmp.path().join(".apkg").join("keys")).unwrap();
@@ -447,7 +448,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rotate_key() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         std::fs::create_dir_all(tmp.path().join(".apkg").join("keys")).unwrap();
@@ -480,7 +481,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rotate_key_not_found() {
-        let _guard = crate::test_utils::ENV_LOCK.lock().unwrap();
+        let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         setup_env(tmp.path());
         std::fs::create_dir_all(tmp.path().join(".apkg").join("keys")).unwrap();

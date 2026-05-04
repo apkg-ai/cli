@@ -745,4 +745,137 @@ mod tests {
         assert!(result.is_ok());
         assert!(install_dir.join("index.ts").exists());
     }
+
+    /// Helper: write an `apkg-lock.json` that maps `name@version` entries,
+    /// so resolver skips network lookups and uses the lockfile-seeded path.
+    fn write_lockfile(dir: &std::path::Path, entries: &[(&str, &str, &str)]) {
+        let mut packages = BTreeMap::new();
+        for &(name, version, integrity) in entries {
+            let key = lockfile::lock_key(name, version);
+            packages.insert(
+                key,
+                LockedPackage {
+                    version: version.to_string(),
+                    resolved: format!("https://example.test/{name}/{version}/tarball"),
+                    integrity: integrity.to_string(),
+                    dependencies: BTreeMap::new(),
+                    peer_dependencies: BTreeMap::new(),
+                    package_type: "skill".to_string(),
+                    optional: false,
+                },
+            );
+        }
+        let lf = Lockfile {
+            lockfile_version: LOCKFILE_VERSION,
+            requires: true,
+            resolved: String::new(),
+            packages,
+        };
+        lockfile::save(dir, &lf).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_install_all_happy_path_via_lockfile() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let _cwd = CwdGuard;
+
+        // Resolver sees dep "foo@^1.0.0" + lockfile entry foo@1.0.0 → uses lockfile.
+        let tarball = make_test_tarball();
+        let expected_integrity = crate::util::integrity::sha256_integrity(&tarball);
+
+        write_project_manifest(tmp.path(), &[("foo", "^1.0.0")]);
+        write_lockfile(tmp.path(), &[("foo", "1.0.0", &expected_integrity)]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/foo/1\\.0\\.0/tarball"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(tarball.clone()))
+            .mount(&server)
+            .await;
+
+        let result = run(InstallOptions {
+            package: None,
+            registry: Some(&server.uri()),
+            setup_target: None,
+            frozen_lockfile: false,
+        })
+        .await;
+
+        assert!(result.is_ok(), "{:?}", result.err());
+        assert!(tmp.path().join("apkg_packages/foo/index.ts").exists());
+        // Lockfile still present + still mentions foo.
+        let lf = lockfile::load(tmp.path()).unwrap().unwrap();
+        assert!(lf.packages.contains_key("foo@1.0.0"));
+    }
+
+    #[tokio::test]
+    async fn test_install_all_frozen_lockfile_matches() {
+        // `--frozen-lockfile` should pass (not error) when resolution exactly
+        // matches the existing lockfile.
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let _cwd = CwdGuard;
+
+        let tarball = make_test_tarball();
+        let expected_integrity = crate::util::integrity::sha256_integrity(&tarball);
+
+        write_project_manifest(tmp.path(), &[("foo", "^1.0.0")]);
+        write_lockfile(tmp.path(), &[("foo", "1.0.0", &expected_integrity)]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/foo/1\\.0\\.0/tarball"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(tarball.clone()))
+            .mount(&server)
+            .await;
+
+        let result = run(InstallOptions {
+            package: None,
+            registry: Some(&server.uri()),
+            setup_target: None,
+            frozen_lockfile: true,
+        })
+        .await;
+
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_install_single_happy_path_via_lockfile() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let _cwd = CwdGuard;
+
+        let tarball = make_test_tarball();
+        let expected_integrity = crate::util::integrity::sha256_integrity(&tarball);
+
+        // install_single does NOT need a project manifest, but does need the
+        // lockfile to short-circuit resolver's network lookup.
+        write_lockfile(tmp.path(), &[("bar", "1.0.0", &expected_integrity)]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/bar/1\\.0\\.0/tarball"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(tarball.clone()))
+            .mount(&server)
+            .await;
+
+        let result = run(InstallOptions {
+            package: Some("bar@^1.0.0"),
+            registry: Some(&server.uri()),
+            setup_target: None,
+            frozen_lockfile: false,
+        })
+        .await;
+
+        assert!(result.is_ok(), "{:?}", result.err());
+        assert!(tmp.path().join("apkg_packages/bar/index.ts").exists());
+    }
 }

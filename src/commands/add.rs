@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::env;
+use std::path::Path;
 
 use crate::api::client::ApiClient;
 use crate::commands::install;
@@ -53,6 +54,29 @@ fn format_transitive_message(pkg_count: usize) -> Option<String> {
     ))
 }
 
+/// Render the post-install summary for `apkg add`: direct-package labels plus
+/// an optional transitive-deps note. All user-visible output of the command's
+/// write phase lives here.
+fn print_add_summary(
+    name: &str,
+    direct_pkg: &resolver::ResolvedPackage,
+    manifest_range: &str,
+    category: DepCategory,
+    cwd: &Path,
+    total_pkg_count: usize,
+) {
+    display::success(&format!("Added {name}@{}", direct_pkg.version));
+    display::label_value("Range", manifest_range);
+    display::label_value("Saved to", category.label());
+    let direct_install_dir = cwd.join("apkg_packages").join(install::safe_dir_name(name));
+    display::label_value("Location", &direct_install_dir.display().to_string());
+    display::label_value("Integrity", &direct_pkg.integrity);
+
+    if let Some(msg) = format_transitive_message(total_pkg_count) {
+        display::info(&msg);
+    }
+}
+
 pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
     let (name, version_spec) = parse_package_spec(opts.package);
     let cwd = env::current_dir()?;
@@ -97,19 +121,14 @@ pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
     install::merge_into_lockfile(&mut lf, &result);
     lockfile::save(&cwd, &lf)?;
 
-    // Display info
-    display::success(&format!("Added {name}@{}", direct_pkg.version));
-    display::label_value("Range", &manifest_range);
-    display::label_value("Saved to", opts.category.label());
-    let direct_install_dir = cwd
-        .join("apkg_packages")
-        .join(install::safe_dir_name(&name));
-    display::label_value("Location", &direct_install_dir.display().to_string());
-    display::label_value("Integrity", &direct_pkg.integrity);
-
-    if let Some(msg) = format_transitive_message(result.packages.len()) {
-        display::info(&msg);
-    }
+    print_add_summary(
+        &name,
+        direct_pkg,
+        &manifest_range,
+        opts.category,
+        &cwd,
+        result.packages.len(),
+    );
 
     // Run setup for ALL resolved packages
     install::run_setup_for_result(&result, &cwd, opts.setup_target.as_ref());

@@ -109,17 +109,29 @@ pub async fn run(opts: VerifyOptions<'_>) -> Result<(), AppError> {
     let pb = make_spinner();
     pb.set_message("Fetching registry signing keys...");
 
-    // Fetch registry signing keys (best-effort; empty map on failure)
-    let registry_keys: HashMap<String, RegistrySigningKey> =
-        match client.get_registry_signing_keys().await {
-            Ok(collection) => collection
-                .keys
-                .into_iter()
-                .filter(|k| k.status == "active")
-                .map(|k| (k.key_id.clone(), k))
-                .collect(),
-            Err(_) => HashMap::new(),
-        };
+    let registry_keys: HashMap<String, RegistrySigningKey> = match client
+        .get_registry_signing_keys()
+        .await
+    {
+        Ok(collection) => collection
+            .keys
+            .into_iter()
+            .filter(|k| k.status == "active")
+            .map(|k| (k.key_id.clone(), k))
+            .collect(),
+        Err(e) => {
+            if opts.strict {
+                pb.finish_and_clear();
+                return Err(AppError::Other(format!(
+                        "Failed to fetch registry signing keys: {e}. Cannot verify signatures in strict mode."
+                    )));
+            }
+            display::warn(&format!(
+                "Failed to fetch registry signing keys: {e}. Signatures will report as unsigned."
+            ));
+            HashMap::new()
+        }
+    };
 
     pb.set_message("Verifying packages...");
 
@@ -1151,5 +1163,94 @@ mod tests {
         .await;
         // Should succeed (non-strict) but report error for integrity
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_strict_fails_when_signing_keys_unreachable() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        write_lockfile(tmp.path(), &[("pkg", "1.0.0", "sha256-abc")]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/registry/signing-keys"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let result = run(VerifyOptions {
+            package: Some("pkg"),
+            json: false,
+            strict: true,
+            registry: Some(&server.uri()),
+        })
+        .await;
+
+        let err = result.expect_err("strict mode must abort on signing-keys failure");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("signing keys"),
+            "expected error to mention signing keys, got: {msg}"
+        );
+        assert!(
+            msg.contains("strict mode"),
+            "expected error to mention strict mode, got: {msg}"
+        );
+    }
+
+    // The warning emitted by `display::warn` goes to stderr and isn't
+    // asserted here — the test only verifies non-strict mode doesn't abort.
+    #[tokio::test]
+    async fn test_verify_nonstrict_proceeds_when_signing_keys_unreachable() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+
+        let tarball_data = b"test-content";
+        let integrity_hash = crate::util::integrity::sha256_integrity(tarball_data);
+        cache::store("pkg", "1.0.0", tarball_data, &integrity_hash).unwrap();
+
+        write_lockfile(tmp.path(), &[("pkg", "1.0.0", &integrity_hash)]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/registry/signing-keys"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "pkg",
+                "versions": {
+                    "1.0.0": { "version": "1.0.0" }
+                }
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/packages/.+/1\\.0\\.0/provenance"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let result = run(VerifyOptions {
+            package: Some("pkg"),
+            json: false,
+            strict: false,
+            registry: Some(&server.uri()),
+        })
+        .await;
+
+        // Non-strict: command succeeds (warning is emitted to stderr but not
+        // asserted — same convention as other `display::*`-based tests).
+        assert!(
+            result.is_ok(),
+            "non-strict mode must not abort: {:?}",
+            result.err()
+        );
     }
 }

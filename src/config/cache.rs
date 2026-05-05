@@ -318,6 +318,26 @@ mod tests {
     }
 
     #[test]
+    fn test_clean_also_wipes_metadata_subdir() {
+        use crate::config::metadata_cache;
+        with_temp_cache(|| {
+            // Populate both: a tarball entry and a metadata entry.
+            let tarball = b"tarball bytes";
+            store("pkg-a", "1.0.0", tarball, &sha256_integrity(tarball)).unwrap();
+            metadata_cache::store("pkg-a", r#"{"name":"pkg-a"}"#).unwrap();
+
+            assert!(metadata_cache::load("pkg-a").unwrap().is_some());
+
+            let result = clean().unwrap();
+            assert!(result.count >= 1);
+
+            // Both kinds of entries should now be gone.
+            assert!(list_entries().unwrap().is_empty());
+            assert!(metadata_cache::load("pkg-a").unwrap().is_none());
+        });
+    }
+
+    #[test]
     fn test_clean_empty() {
         with_temp_cache(|| {
             let result = clean().unwrap();

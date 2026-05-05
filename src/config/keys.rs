@@ -1,17 +1,67 @@
 use std::fs;
+use std::ops::Deref;
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use zeroize::Zeroize;
 
 use crate::error::AppError;
 
+/// A `String` that zeros its buffer on drop.
+///
+/// Used for secret material (base64-encoded private keys) we persist in a
+/// serde struct. `Zeroize` is derived on drop; serde delegates to `String`'s
+/// impls so the on-disk JSON format is unchanged.
+///
+/// **Caveat:** `String` reallocation during construction can leave copies
+/// the drop-time zeroizer can't reach. Always construct from a fully-sized
+/// source (e.g. `BASE64.encode(...)` or `.to_string()`), never via
+/// incremental `push_str`.
+#[derive(Debug, Clone, Zeroize)]
+#[zeroize(drop)]
+pub struct ZeroizingString(String);
+
+impl ZeroizingString {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for ZeroizingString {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl Deref for ZeroizingString {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Serialize for ZeroizingString {
+    fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(ser)
+    }
+}
+
+impl<'de> Deserialize<'de> for ZeroizingString {
+    fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        String::deserialize(de).map(ZeroizingString)
+    }
+}
+
+/// Ed25519 signing key material persisted under `~/.apkg/keys/`.
+///
+/// `private_key` is a `ZeroizingString` — the buffer is overwritten on drop.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoredKey {
     pub key_id: String,
     pub name: String,
     pub public_key: String,
-    pub private_key: String,
+    pub private_key: ZeroizingString,
     pub created_at: String,
 }
 
@@ -106,7 +156,7 @@ mod tests {
             key_id: "SHA256:testkey123".to_string(),
             name: "test-key".to_string(),
             public_key: "cHVibGlj".to_string(),
-            private_key: "cHJpdmF0ZQ==".to_string(),
+            private_key: "cHJpdmF0ZQ==".to_string().into(),
             created_at: "2026-03-14T12:00:00Z".to_string(),
         };
 
@@ -121,12 +171,53 @@ mod tests {
         assert_eq!(loaded.public_key, "cHVibGlj");
     }
 
+    /// The on-disk JSON must remain a plain string for `private_key`, so any
+    /// client (or older apkg version) can still parse it. Guards against
+    /// accidental serde-format drift when changing the wrapper type.
+    #[test]
+    fn test_stored_key_json_shape_unchanged() {
+        let key = StoredKey {
+            key_id: "SHA256:x".to_string(),
+            name: "x".to_string(),
+            public_key: "pub".to_string(),
+            private_key: "secret".to_string().into(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&key).unwrap();
+        // Private key is a bare string, not an object or byte array.
+        assert!(
+            json.contains(r#""privateKey":"secret""#),
+            "unexpected serialization: {json}"
+        );
+
+        let loaded: StoredKey = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.private_key.as_str(), "secret");
+    }
+
+    /// Regression guard: `private_key` must stay a `ZeroizingString` so the
+    /// buffer is scrubbed on drop. If this field ever goes back to a plain
+    /// `String`, this test is the first thing that breaks.
+    #[test]
+    fn test_stored_key_private_key_is_zeroizing() {
+        let key = StoredKey {
+            key_id: "id".to_string(),
+            name: "n".to_string(),
+            public_key: "p".to_string(),
+            private_key: "secret".to_string().into(),
+            created_at: "t".to_string(),
+        };
+        // Assigning to a `ZeroizingString`-typed local pins the field type.
+        // If the field ever changes type, this line fails to compile.
+        let _typed: &ZeroizingString = &key.private_key;
+        assert_eq!(key.private_key.as_str(), "secret");
+    }
+
     fn make_test_key(id: &str, name: &str) -> StoredKey {
         StoredKey {
             key_id: id.to_string(),
             name: name.to_string(),
             public_key: "cHVibGlj".to_string(),
-            private_key: "cHJpdmF0ZQ==".to_string(),
+            private_key: "cHJpdmF0ZQ==".to_string().into(),
             created_at: "2026-03-14T12:00:00Z".to_string(),
         }
     }

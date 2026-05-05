@@ -3,9 +3,10 @@ use base64::Engine;
 use ed25519_dalek::{Signer, SigningKey};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
+use zeroize::Zeroizing;
 
 use crate::api::client::ApiClient;
-use crate::config::keys;
+use crate::config::keys::{self, ZeroizingString};
 use crate::error::AppError;
 use crate::util::display;
 
@@ -56,7 +57,8 @@ fn generate(name: &str) -> Result<(), AppError> {
     let public_key = signing_key.verifying_key();
 
     let public_key_b64 = BASE64.encode(public_key.as_bytes());
-    let private_key_b64 = BASE64.encode(signing_key.to_bytes());
+    // Wrap the base64-encoded secret so the buffer is overwritten on drop.
+    let private_key_b64: ZeroizingString = BASE64.encode(signing_key.to_bytes()).into();
     let key_id = compute_key_id(public_key.as_bytes());
 
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
@@ -202,18 +204,27 @@ async fn rotate(
         ))
     })?;
 
-    let old_private_bytes = BASE64
-        .decode(&old_key.private_key)
-        .map_err(|e| AppError::Other(format!("Failed to decode old private key: {e}")))?;
-    let old_private_bytes: [u8; 32] = old_private_bytes
-        .try_into()
-        .map_err(|_| AppError::Other("Invalid private key length".into()))?;
+    // Decode into a `Zeroizing<Vec<u8>>` so the intermediate base64-decoded
+    // bytes don't outlive the function, even on the error path.
+    let old_private_bytes: Zeroizing<Vec<u8>> = Zeroizing::new(
+        BASE64
+            .decode(old_key.private_key.as_str())
+            .map_err(|e| AppError::Other(format!("Failed to decode old private key: {e}")))?,
+    );
+    // Copy into a fixed-size array (SigningKey::from_bytes signature). Wrapped
+    // in Zeroizing so the stack copy also zeroes on drop.
+    let old_private_bytes: Zeroizing<[u8; 32]> = Zeroizing::new(
+        old_private_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| AppError::Other("Invalid private key length".into()))?,
+    );
     let old_signing_key = SigningKey::from_bytes(&old_private_bytes);
 
     let new_signing_key = SigningKey::generate(&mut OsRng);
     let new_public_key = new_signing_key.verifying_key();
     let new_public_key_b64 = BASE64.encode(new_public_key.as_bytes());
-    let new_private_key_b64 = BASE64.encode(new_signing_key.to_bytes());
+    let new_private_key_b64: ZeroizingString = BASE64.encode(new_signing_key.to_bytes()).into();
     let new_key_id = compute_key_id(new_public_key.as_bytes());
 
     // Old key signs over new public key bytes as attestation of rotation

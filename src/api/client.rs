@@ -9,6 +9,7 @@ use crate::api::types::{
     SearchResponse, VersionMetadata, WhoamiResponse,
 };
 use crate::config::credentials;
+use crate::config::metadata_cache;
 use crate::config::settings::Settings;
 use crate::error::AppError;
 
@@ -128,13 +129,36 @@ impl ApiClient {
     }
 
     pub async fn get_package(&self, name: &str) -> Result<PackageMetadata, AppError> {
+        // Fast path: serve from metadata cache if present, fresh, and parseable.
+        // A schema-drift failure silently falls through to a refetch.
+        if !metadata_cache::is_disabled() {
+            if let Ok(Some(entry)) = metadata_cache::load(name) {
+                if entry.is_fresh(metadata_cache::configured_ttl()) {
+                    if let Ok(meta) = serde_json::from_str::<PackageMetadata>(&entry.body) {
+                        return Ok(meta);
+                    }
+                }
+            }
+        }
+
         let encoded_name = encode_package_name(name);
         let url = self.url("package", &format!("/packages/{encoded_name}"));
         let headers = self.auth_headers()?;
         let resp = self.client.get(&url).headers(headers).send().await?;
 
         if resp.status().is_success() {
-            parse_json_response(resp).await
+            let body = resp.text().await?;
+            let meta: PackageMetadata =
+                serde_json::from_str(&body).map_err(|e| AppError::Parse {
+                    what: "response body".into(),
+                    cause: format!("{e}\nBody: {}", truncate_body(&body)),
+                })?;
+
+            if !metadata_cache::is_disabled() {
+                let _ = metadata_cache::store(name, &body);
+            }
+
+            Ok(meta)
         } else if resp.status().as_u16() == 404 {
             Err(AppError::PackageNotFound(name.to_string()))
         } else {
@@ -783,6 +807,38 @@ mod tests {
         let client = make_test_client(&server).await;
         let meta = client.get_package("@scope/pkg").await.unwrap();
         assert_eq!(meta.name, "@scope/pkg");
+    }
+
+    #[tokio::test]
+    async fn test_get_package_uses_metadata_cache() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("APKG_CACHE_DIR", tmp.path());
+        std::env::remove_var("APKG_NO_METADATA_CACHE");
+        std::env::remove_var("APKG_METADATA_TTL_SECS");
+
+        let server = MockServer::start().await;
+        // `.expect(1)` asserts the registry is hit exactly once, even though
+        // we call `get_package` twice — confirming the cache served call #2.
+        Mock::given(method("GET"))
+            .and(path("/packages/widget"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "widget",
+                "versions": {},
+                "maintainers": [],
+                "distTags": {}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = make_test_client(&server).await;
+        let first = client.get_package("widget").await.unwrap();
+        let second = client.get_package("widget").await.unwrap();
+        assert_eq!(first.name, "widget");
+        assert_eq!(second.name, "widget");
+
+        std::env::remove_var("APKG_CACHE_DIR");
     }
 
     #[tokio::test]

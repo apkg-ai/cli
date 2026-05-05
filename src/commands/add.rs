@@ -68,7 +68,7 @@ fn print_add_summary(
     display::success(&format!("Added {name}@{}", direct_pkg.version));
     display::label_value("Range", manifest_range);
     display::label_value("Saved to", category.label());
-    let direct_install_dir = cwd.join("apkg_packages").join(install::safe_dir_name(name));
+    let direct_install_dir = cwd.join("apkg_packages").join(name);
     display::label_value("Location", &direct_install_dir.display().to_string());
     display::label_value("Integrity", &direct_pkg.integrity);
 
@@ -79,6 +79,7 @@ fn print_add_summary(
 
 pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
     let (name, version_spec) = parse_package_spec(opts.package);
+    crate::util::package::validate_package_name(&name)?;
     let cwd = env::current_dir()?;
 
     // Manifest must exist for `add`
@@ -131,7 +132,7 @@ pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
     );
 
     // Run setup for ALL resolved packages
-    install::run_setup_for_result(&result, &cwd, opts.setup_target.as_ref());
+    install::run_setup_for_result(&result, &cwd, opts.setup_target.as_ref())?;
 
     Ok(())
 }

@@ -74,7 +74,7 @@ async fn install_all(opts: &InstallOptions<'_>) -> Result<(), AppError> {
     pb.finish_and_clear();
 
     // Run setup for all installed packages
-    run_setup_for_result(&result, &cwd, opts.setup_target.as_ref());
+    run_setup_for_result(&result, &cwd, opts.setup_target.as_ref())?;
 
     let elapsed = start.elapsed();
     display::success(&format!(
@@ -88,6 +88,7 @@ async fn install_all(opts: &InstallOptions<'_>) -> Result<(), AppError> {
 
 async fn install_single(opts: &InstallOptions<'_>, pkg: &str) -> Result<(), AppError> {
     let (name, version_spec) = parse_package_spec(pkg);
+    crate::util::package::validate_package_name(&name)?;
     let cwd = env::current_dir()?;
 
     let client = ApiClient::new(opts.registry)?;
@@ -125,7 +126,7 @@ async fn install_single(opts: &InstallOptions<'_>, pkg: &str) -> Result<(), AppE
     // Display info for the direct package
     if let Some(direct) = result.packages.get(&name) {
         display::success(&format!("Installed {name}@{}", direct.version));
-        let install_dir = cwd.join("apkg_packages").join(safe_dir_name(&name));
+        let install_dir = cwd.join("apkg_packages").join(validated_dir_name(&name)?);
         display::label_value("Location", &install_dir.display().to_string());
         display::label_value("Integrity", &direct.integrity);
     }
@@ -145,7 +146,7 @@ async fn install_single(opts: &InstallOptions<'_>, pkg: &str) -> Result<(), AppE
     ));
 
     // Run setup for ALL resolved packages
-    run_setup_for_result(&result, &cwd, opts.setup_target.as_ref());
+    run_setup_for_result(&result, &cwd, opts.setup_target.as_ref())?;
 
     Ok(())
 }
@@ -270,8 +271,15 @@ pub(crate) fn build_lockfile(result: &resolver::ResolutionResult) -> Lockfile {
     }
 }
 
-pub(crate) fn safe_dir_name(name: &str) -> String {
-    name.to_string()
+/// Validate a package name for use as a directory segment under
+/// `apkg_packages/`. Returns the name unchanged on success; errors if the
+/// name contains anything that could escape the intended install root
+/// (e.g. `..`, absolute paths, backslashes).
+///
+/// Thin wrapper around `util::package::validate_package_name` — the name
+/// lives here for discoverability alongside other install-path helpers.
+pub(crate) fn validated_dir_name(name: &str) -> Result<&str, AppError> {
+    crate::util::package::validate_package_name(name)
 }
 
 pub(crate) fn make_spinner() -> ProgressBar {
@@ -320,7 +328,7 @@ pub(crate) async fn download_resolved(
     pb: &ProgressBar,
 ) -> Result<(), AppError> {
     for (name, pkg) in &result.packages {
-        let install_dir = cwd.join("apkg_packages").join(safe_dir_name(name));
+        let install_dir = cwd.join("apkg_packages").join(validated_dir_name(name)?);
         download_or_cache(client, name, &pkg.version, &pkg.integrity, &install_dir, pb).await?;
     }
     Ok(())
@@ -338,7 +346,7 @@ pub(crate) async fn download_resolved_subset(
 ) -> Result<(), AppError> {
     for name in names {
         if let Some(pkg) = result.packages.get(*name) {
-            let install_dir = cwd.join("apkg_packages").join(safe_dir_name(name));
+            let install_dir = cwd.join("apkg_packages").join(validated_dir_name(name)?);
             download_or_cache(client, name, &pkg.version, &pkg.integrity, &install_dir, pb).await?;
         }
     }
@@ -346,15 +354,16 @@ pub(crate) async fn download_resolved_subset(
 }
 
 /// Run tool-specific setup (claude / cursor / codex) for every package in the
-/// resolution result. No-op when `target` is `None`.
+/// resolution result. No-op when `target` is `None`. Errors if any package
+/// name is unsafe to use as a directory segment.
 pub(crate) fn run_setup_for_result(
     result: &resolver::ResolutionResult,
     cwd: &Path,
     target: Option<&setup::SetupTarget>,
-) {
-    let Some(target) = target else { return };
+) -> Result<(), AppError> {
+    let Some(target) = target else { return Ok(()) };
     for name in result.packages.keys() {
-        let install_dir = cwd.join("apkg_packages").join(safe_dir_name(name));
+        let install_dir = cwd.join("apkg_packages").join(validated_dir_name(name)?);
         let report = setup::run_setup(&setup::SetupContext {
             project_root: cwd.to_path_buf(),
             install_dir,
@@ -362,6 +371,7 @@ pub(crate) fn run_setup_for_result(
         });
         setup::display_report(&report);
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -558,16 +568,23 @@ mod tests {
         assert!(lf.packages.contains_key("@acme/tool@3.0.0"));
     }
 
-    // --- safe_dir_name ---
+    // --- validated_dir_name ---
 
     #[test]
-    fn test_safe_dir_name_simple() {
-        assert_eq!(safe_dir_name("foo"), "foo");
+    fn test_validated_dir_name_simple() {
+        assert_eq!(validated_dir_name("foo").unwrap(), "foo");
     }
 
     #[test]
-    fn test_safe_dir_name_scoped() {
-        assert_eq!(safe_dir_name("@org/pkg"), "@org/pkg");
+    fn test_validated_dir_name_scoped() {
+        assert_eq!(validated_dir_name("@org/pkg").unwrap(), "@org/pkg");
+    }
+
+    #[test]
+    fn test_validated_dir_name_rejects_path_traversal() {
+        assert!(validated_dir_name("../evil").is_err());
+        assert!(validated_dir_name("@evil/../foo").is_err());
+        assert!(validated_dir_name("/etc/passwd").is_err());
     }
 
     // --- make_spinner ---
@@ -902,5 +919,33 @@ mod tests {
 
         assert!(result.is_ok(), "{:?}", result.err());
         assert!(tmp.path().join("apkg_packages/bar/index.ts").exists());
+    }
+
+    /// Attack-path test: a package name with `..` traversal must be refused
+    /// before any filesystem write. Proves SEC-1 is closed.
+    #[tokio::test]
+    async fn test_install_rejects_malicious_package_name() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let _cwd = CwdGuard;
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        // No network mock needed — validation fires before any HTTP call.
+        let result = run(InstallOptions {
+            package: Some("../../etc/passwd"),
+            registry: Some("http://unused.test"),
+            setup_target: None,
+            frozen_lockfile: false,
+        })
+        .await;
+
+        let err = result.expect_err("malicious name must be rejected");
+        assert!(
+            err.to_string().contains("Invalid package name"),
+            "expected validator error, got: {err}"
+        );
+        // No files were written outside the tempdir.
+        assert!(!tmp.path().join("apkg_packages").exists());
     }
 }

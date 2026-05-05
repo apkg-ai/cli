@@ -177,8 +177,7 @@ fn validate_package_name(name: &str) -> Result<(), String> {
     if name.len() > 214 {
         return Err("Package name must be 214 characters or fewer".to_string());
     }
-    let re = regex_lite::Regex::new(r"^@[a-z0-9-]+/[a-z0-9]([a-z0-9._-]*[a-z0-9])?$").unwrap();
-    if !re.is_match(name) {
+    if !crate::util::package::SCOPED_PACKAGE_NAME_RE.is_match(name) {
         return Err(
             "Package name must be scoped: @username/name or @org/name. Use lowercase letters, numbers, hyphens.".to_string(),
         );

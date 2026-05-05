@@ -43,6 +43,13 @@ impl Settings {
             .to_string()
     }
 
+    /// Set a config value by its dotted key. Intended as an internal
+    /// serializer — **unknown keys are silently ignored**. Callers are
+    /// expected to validate the key first; the sole caller today
+    /// (`commands::config::run`) gates this with `validate_key(key)?`
+    /// which rejects unrecognised keys with a helpful error listing the
+    /// valid set. If you add a new caller, call `validate_key` first or
+    /// you'll silently drop user input.
     pub fn set(&mut self, key: &str, value: &str) {
         if key == "registry" {
             self.registry = Some(value.to_string());
@@ -56,6 +63,21 @@ impl Settings {
         }
     }
 
+    /// Look up a config value by its dotted key, returning its display
+    /// representation as `&str`. Intended for the `apkg config get` CLI
+    /// command, where the user expects a single string to print.
+    ///
+    /// Boolean-valued keys (`symlinkClaudeMd`, `defaultSetup.*`) return the
+    /// stringified form `"true"`/`"false"` — fine for display, but **not** a
+    /// typed-access API. Internal callers that need the underlying value
+    /// should use the dedicated accessors instead:
+    ///
+    /// - [`Settings::symlink_claude_md_enabled`] for `symlinkClaudeMd`.
+    /// - [`Settings::enabled_setup_tools`] for the set of tools selected in
+    ///   `defaultSetup`.
+    ///
+    /// Unknown keys return `None`; the caller decides whether that's an
+    /// error (`config get`) or a default-fallback.
     pub fn get(&self, key: &str) -> Option<&str> {
         if key == "registry" {
             self.registry.as_deref()

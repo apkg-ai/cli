@@ -538,13 +538,27 @@ impl ApiClient {
     }
 }
 
+const MAX_ERROR_BODY_BYTES: usize = 512;
+
+fn truncate_body(body: &str) -> String {
+    if body.len() <= MAX_ERROR_BODY_BYTES {
+        return body.to_string();
+    }
+    let mut end = MAX_ERROR_BODY_BYTES;
+    while end > 0 && !body.is_char_boundary(end) {
+        end -= 1;
+    }
+    let remaining = body.len() - end;
+    format!("{}… (truncated, {remaining} more bytes)", &body[..end])
+}
+
 async fn parse_json_response<T: serde::de::DeserializeOwned>(
     resp: reqwest::Response,
 ) -> Result<T, AppError> {
     let body = resp.text().await?;
     serde_json::from_str(&body).map_err(|e| AppError::Parse {
         what: "response body".into(),
-        cause: format!("{e}\nBody: {body}"),
+        cause: format!("{e}\nBody: {}", truncate_body(&body)),
     })
 }
 
@@ -564,6 +578,37 @@ mod tests {
     use crate::test_utils::env_lock;
     use wiremock::matchers::{method, path, path_regex};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[test]
+    fn test_truncate_body_short_unchanged() {
+        assert_eq!(truncate_body("short body"), "short body");
+    }
+
+    #[test]
+    fn test_truncate_body_long_is_cut() {
+        let s = "x".repeat(1000);
+        let out = truncate_body(&s);
+        assert!(out.len() < s.len());
+        assert!(out.contains("… (truncated,"));
+        assert!(out.contains("488 more bytes"));
+    }
+
+    #[test]
+    fn test_truncate_body_respects_char_boundary() {
+        // Build a string where the cap lands inside a multi-byte char ('é' = 2 bytes):
+        // MAX-1 'x' chars, then 'é', then filler. Naïve &s[..MAX] would panic here.
+        let mut s = String::new();
+        for _ in 0..MAX_ERROR_BODY_BYTES - 1 {
+            s.push('x');
+        }
+        s.push('é');
+        for _ in 0..100 {
+            s.push('y');
+        }
+        let out = truncate_body(&s);
+        assert!(out.is_char_boundary(out.len()));
+        assert!(out.contains("… (truncated,"));
+    }
 
     async fn make_test_client(server: &MockServer) -> ApiClient {
         let tmp = tempfile::tempdir().unwrap();

@@ -50,8 +50,14 @@ pub fn write_tarball(path: &Path, data: &[u8]) -> Result<(), AppError> {
 const MAX_DECOMPRESSED_BYTES: u64 = 2 * 1024 * 1024;
 
 /// Extract a `.tar.zst` tarball into the given directory.
+///
+/// Defence-in-depth: on top of the `tar` crate's built-in canonicalization,
+/// each entry is validated to reject `..` path components, symlinks/hardlinks,
+/// and non-regular entry types before unpacking.
 pub fn extract_tarball(data: &[u8], dest: &Path) -> Result<(), AppError> {
     use std::io::{Cursor, Read};
+    use std::path::Component;
+    use tar::EntryType;
 
     fs::create_dir_all(dest)?;
 
@@ -60,11 +66,59 @@ pub fn extract_tarball(data: &[u8], dest: &Path) -> Result<(), AppError> {
         .map_err(|e| AppError::Tarball(format!("Failed to create zstd decoder: {e}")))?;
     let capped = decoder.take(MAX_DECOMPRESSED_BYTES);
     let mut archive = tar::Archive::new(capped);
-    archive.unpack(dest).map_err(|e| {
+
+    let entries = archive.entries().map_err(|e| {
         AppError::Tarball(format!(
-            "Failed to extract tarball (decompressed size exceeds {MAX_DECOMPRESSED_BYTES}-byte cap, or archive is malformed): {e}"
+            "Failed to read tarball entries (decompressed size may exceed {MAX_DECOMPRESSED_BYTES}-byte cap, or archive is malformed): {e}"
         ))
     })?;
+
+    for entry in entries {
+        let mut entry =
+            entry.map_err(|e| AppError::Tarball(format!("Failed to read tarball entry: {e}")))?;
+
+        // Reject any `..` component — `tar`'s `unpack_in` would otherwise
+        // silently skip the entry, hiding the hostile intent from the user.
+        let path = entry
+            .path()
+            .map_err(|e| AppError::Tarball(format!("Invalid entry path: {e}")))?
+            .into_owned();
+        let path_display = path.display().to_string();
+
+        for part in path.components() {
+            if matches!(part, Component::ParentDir) {
+                return Err(AppError::Tarball(format!(
+                    "refusing to extract entry '{path_display}' — path contains parent-directory reference (..)"
+                )));
+            }
+        }
+
+        // apkg packages have no legitimate use for links; reject them outright.
+        let entry_type = entry.header().entry_type();
+        if entry_type.is_symlink() || entry_type.is_hard_link() {
+            return Err(AppError::Tarball(format!(
+                "refusing to extract entry '{path_display}' — symlinks and hardlinks are not allowed"
+            )));
+        }
+
+        // Only regular files, directories, and extended-header metadata are
+        // allowed. Rejects devices, FIFOs, sockets.
+        if !matches!(
+            entry_type,
+            EntryType::Regular
+                | EntryType::Directory
+                | EntryType::XGlobalHeader
+                | EntryType::XHeader
+        ) {
+            return Err(AppError::Tarball(format!(
+                "refusing to extract entry '{path_display}' — entry type {entry_type:?} is not supported"
+            )));
+        }
+
+        entry.unpack_in(dest).map_err(|e| {
+            AppError::Tarball(format!("Failed to unpack entry '{path_display}': {e}"))
+        })?;
+    }
 
     Ok(())
 }
@@ -310,9 +364,20 @@ mod tests {
         let extract_dir = tmp.path().join("extracted");
         let err = extract_tarball(&tarball, &extract_dir).unwrap_err();
         assert!(
-            err.to_string().contains("cap") || err.to_string().contains("Failed to extract"),
-            "unexpected error: {err}"
+            matches!(err, AppError::Tarball(_)),
+            "expected Tarball error, got: {err}"
         );
+        // Cap must keep the extracted file strictly below the cap (we can't
+        // measure the decompression stream directly, but if extraction errored
+        // the partially-unpacked file, if any, must be under the cap).
+        let partial = extract_dir.join("huge.bin");
+        if partial.exists() {
+            let sz = fs::metadata(&partial).unwrap().len();
+            assert!(
+                sz <= MAX_DECOMPRESSED_BYTES,
+                "partial file exceeded cap: {sz} bytes"
+            );
+        }
     }
 
     #[test]
@@ -330,6 +395,117 @@ mod tests {
         assert_eq!(
             fs::metadata(extract_dir.join("medium.bin")).unwrap().len(),
             payload.len() as u64
+        );
+    }
+
+    /// Wrap raw tar bytes in zstd so they can be passed to `extract_tarball`.
+    fn zstd_wrap(tar_bytes: &[u8]) -> Vec<u8> {
+        use std::io::Write as _;
+        let mut buf = Vec::new();
+        let mut enc = zstd::Encoder::new(&mut buf, 0).unwrap();
+        enc.write_all(tar_bytes).unwrap();
+        enc.finish().unwrap();
+        buf
+    }
+
+    #[test]
+    fn test_extract_rejects_parent_dir_traversal() {
+        // `Header::set_path` refuses `..` entries, so we write raw header bytes
+        // to simulate what a malicious tarball would contain.
+        let mut tar_buf = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut tar_buf);
+            let mut header = tar::Header::new_gnu();
+            let payload = b"pwned";
+            header.set_size(payload.len() as u64);
+            header.set_entry_type(tar::EntryType::Regular);
+            {
+                let name_bytes = &mut header.as_old_mut().name;
+                let evil = b"../evil";
+                name_bytes[..evil.len()].copy_from_slice(evil);
+            }
+            header.set_cksum();
+            builder.append(&header, &payload[..]).unwrap();
+            builder.finish().unwrap();
+        }
+        let data = zstd_wrap(&tar_buf);
+
+        let tmp = tempfile::tempdir().unwrap();
+        let err = extract_tarball(&data, tmp.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("parent-directory reference"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_extract_rejects_symlink_entry() {
+        let mut tar_buf = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut tar_buf);
+            let mut header = tar::Header::new_gnu();
+            header.set_path("link").unwrap();
+            header.set_entry_type(tar::EntryType::Symlink);
+            header.set_link_name("/etc/passwd").unwrap();
+            header.set_size(0);
+            header.set_cksum();
+            builder.append(&header, std::io::empty()).unwrap();
+            builder.finish().unwrap();
+        }
+        let data = zstd_wrap(&tar_buf);
+
+        let tmp = tempfile::tempdir().unwrap();
+        let err = extract_tarball(&data, tmp.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("symlinks and hardlinks"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_extract_rejects_hardlink_entry() {
+        let mut tar_buf = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut tar_buf);
+            let mut header = tar::Header::new_gnu();
+            header.set_path("hardlink").unwrap();
+            header.set_entry_type(tar::EntryType::Link);
+            header.set_link_name("/etc/passwd").unwrap();
+            header.set_size(0);
+            header.set_cksum();
+            builder.append(&header, std::io::empty()).unwrap();
+            builder.finish().unwrap();
+        }
+        let data = zstd_wrap(&tar_buf);
+
+        let tmp = tempfile::tempdir().unwrap();
+        let err = extract_tarball(&data, tmp.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("symlinks and hardlinks"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_extract_rejects_non_regular_entry_type() {
+        let mut tar_buf = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut tar_buf);
+            let mut header = tar::Header::new_gnu();
+            header.set_path("fifo").unwrap();
+            header.set_entry_type(tar::EntryType::Fifo);
+            header.set_size(0);
+            header.set_cksum();
+            builder.append(&header, std::io::empty()).unwrap();
+            builder.finish().unwrap();
+        }
+        let data = zstd_wrap(&tar_buf);
+
+        let tmp = tempfile::tempdir().unwrap();
+        let err = extract_tarball(&data, tmp.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("not supported"),
+            "unexpected error: {err}"
         );
     }
 }

@@ -22,8 +22,9 @@ tar = "0.4"
 zstd = "0.13"
 sha2 = "0.11"
 base64 = "0.22"
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
 rand = "0.8"
+zeroize = { version = "1", features = ["derive"] }
 dialoguer = { version = "0.12", features = ["password"] }
 indicatif = "0.18"
 console = "0.16"

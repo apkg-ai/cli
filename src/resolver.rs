@@ -44,6 +44,11 @@ pub async fn resolve(
         .collect();
 
     while let Some((name, range_str)) = queue.pop_front() {
+        // Refuse names that would escape `apkg_packages/` when used as a
+        // directory segment. Protects both the extract path below and
+        // `read_installed_deps` which reuses this name.
+        crate::util::package::validate_package_name(&name)?;
+
         // Already resolved — check compatibility
         if let Some(existing) = resolved.get(&name) {
             let normalized = normalize_range(&range_str);
@@ -561,19 +566,19 @@ mod tests {
         setup_env(tmp.path());
         let server = MockServer::start().await;
 
-        // pkgA is resolved from lockfile at 1.0.0, then the deps also
-        // request pkgA@^2.0.0 which conflicts with the already-resolved 1.0.0
+        // pkg-a is resolved from lockfile at 1.0.0, then the deps also
+        // request pkg-a@^2.0.0 which conflicts with the already-resolved 1.0.0
         let client = crate::api::client::ApiClient::new(Some(&server.uri())).unwrap();
         let mut deps = BTreeMap::new();
-        deps.insert("pkgA".to_string(), "^1.0.0".to_string());
+        deps.insert("pkg-a".to_string(), "^1.0.0".to_string());
         // Second request for incompatible range:
-        deps.insert("pkgA".to_string(), "^1.0.0".to_string());
+        deps.insert("pkg-a".to_string(), "^1.0.0".to_string());
 
-        // Use lockfile to seed pkgA at 1.0.0 with a transitive dep that
-        // requests pkgA@^2.0.0 (creating a conflict in the second iteration)
+        // Use lockfile to seed pkg-a at 1.0.0 with a transitive dep that
+        // requests pkg-a@^2.0.0 (creating a conflict in the second iteration)
         let mut lock_packages = BTreeMap::new();
         lock_packages.insert(
-            "pkgA@1.0.0".to_string(),
+            "pkg-a@1.0.0".to_string(),
             lockfile::LockedPackage {
                 version: "1.0.0".to_string(),
                 resolved: "https://x.com/a/tarball".to_string(),
@@ -581,7 +586,7 @@ mod tests {
                 package_type: "skill".to_string(),
                 dependencies: {
                     let mut d = BTreeMap::new();
-                    d.insert("pkgB".to_string(), "^1.0.0".to_string());
+                    d.insert("pkg-b".to_string(), "^1.0.0".to_string());
                     d
                 },
                 peer_dependencies: BTreeMap::new(),
@@ -589,7 +594,7 @@ mod tests {
             },
         );
         lock_packages.insert(
-            "pkgB@1.0.0".to_string(),
+            "pkg-b@1.0.0".to_string(),
             lockfile::LockedPackage {
                 version: "1.0.0".to_string(),
                 resolved: "https://x.com/b/tarball".to_string(),
@@ -597,7 +602,7 @@ mod tests {
                 package_type: "skill".to_string(),
                 dependencies: {
                     let mut d = BTreeMap::new();
-                    d.insert("pkgA".to_string(), "^2.0.0".to_string());
+                    d.insert("pkg-a".to_string(), "^2.0.0".to_string());
                     d
                 },
                 peer_dependencies: BTreeMap::new(),
@@ -625,12 +630,12 @@ mod tests {
 
         let client = crate::api::client::ApiClient::new(Some(&server.uri())).unwrap();
         let mut deps = BTreeMap::new();
-        deps.insert("pkgA".to_string(), "^1.0.0".to_string());
+        deps.insert("pkg-a".to_string(), "^1.0.0".to_string());
 
-        // pkgA depends on pkgB, both in lockfile
+        // pkg-a depends on pkg-b, both in lockfile
         let mut lock_packages = BTreeMap::new();
         lock_packages.insert(
-            "pkgA@1.0.0".to_string(),
+            "pkg-a@1.0.0".to_string(),
             lockfile::LockedPackage {
                 version: "1.0.0".to_string(),
                 resolved: "https://x.com/a/tarball".to_string(),
@@ -638,7 +643,7 @@ mod tests {
                 package_type: "skill".to_string(),
                 dependencies: {
                     let mut d = BTreeMap::new();
-                    d.insert("pkgB".to_string(), "^1.0.0".to_string());
+                    d.insert("pkg-b".to_string(), "^1.0.0".to_string());
                     d
                 },
                 peer_dependencies: BTreeMap::new(),
@@ -646,7 +651,7 @@ mod tests {
             },
         );
         lock_packages.insert(
-            "pkgB@1.2.0".to_string(),
+            "pkg-b@1.2.0".to_string(),
             lockfile::LockedPackage {
                 version: "1.2.0".to_string(),
                 resolved: "https://x.com/b/tarball".to_string(),
@@ -669,8 +674,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result.packages.len(), 2);
-        assert_eq!(result.packages["pkgA"].version, "1.0.0");
-        assert_eq!(result.packages["pkgB"].version, "1.2.0");
+        assert_eq!(result.packages["pkg-a"].version, "1.0.0");
+        assert_eq!(result.packages["pkg-b"].version, "1.2.0");
     }
 
     #[tokio::test]
@@ -703,15 +708,15 @@ mod tests {
         setup_env(tmp.path());
         let server = MockServer::start().await;
 
-        // pkgA (from lockfile at 1.0.0) is also requested as ^1.0.0 by pkgB
+        // pkg-a (from lockfile at 1.0.0) is also requested as ^1.0.0 by pkg-b
         // This should succeed (compatible)
         let client = crate::api::client::ApiClient::new(Some(&server.uri())).unwrap();
         let mut deps = BTreeMap::new();
-        deps.insert("pkgA".to_string(), "^1.0.0".to_string());
+        deps.insert("pkg-a".to_string(), "^1.0.0".to_string());
 
         let mut lock_packages = BTreeMap::new();
         lock_packages.insert(
-            "pkgA@1.5.0".to_string(),
+            "pkg-a@1.5.0".to_string(),
             lockfile::LockedPackage {
                 version: "1.5.0".to_string(),
                 resolved: "https://x.com/a/tarball".to_string(),
@@ -719,7 +724,7 @@ mod tests {
                 package_type: "skill".to_string(),
                 dependencies: {
                     let mut d = BTreeMap::new();
-                    d.insert("pkgB".to_string(), "^1.0.0".to_string());
+                    d.insert("pkg-b".to_string(), "^1.0.0".to_string());
                     d
                 },
                 peer_dependencies: BTreeMap::new(),
@@ -727,7 +732,7 @@ mod tests {
             },
         );
         lock_packages.insert(
-            "pkgB@1.0.0".to_string(),
+            "pkg-b@1.0.0".to_string(),
             lockfile::LockedPackage {
                 version: "1.0.0".to_string(),
                 resolved: "https://x.com/b/tarball".to_string(),
@@ -735,8 +740,8 @@ mod tests {
                 package_type: "skill".to_string(),
                 dependencies: {
                     let mut d = BTreeMap::new();
-                    // pkgB requests pkgA@^1.0.0 — compatible with already-resolved 1.5.0
-                    d.insert("pkgA".to_string(), "^1.0.0".to_string());
+                    // pkg-b requests pkg-a@^1.0.0 — compatible with already-resolved 1.5.0
+                    d.insert("pkg-a".to_string(), "^1.0.0".to_string());
                     d
                 },
                 peer_dependencies: BTreeMap::new(),
@@ -755,6 +760,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result.packages.len(), 2);
-        assert_eq!(result.packages["pkgA"].version, "1.5.0");
+        assert_eq!(result.packages["pkg-a"].version, "1.5.0");
     }
 }

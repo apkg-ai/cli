@@ -217,7 +217,7 @@ pub async fn run(opts: UpdateOptions<'_>) -> Result<(), AppError> {
 
     apply_changes(&changes, &result, m, &opts, &cwd, &client).await?;
 
-    install::run_setup_for_result(&result, &cwd, opts.setup_target.as_ref());
+    install::run_setup_for_result(&result, &cwd, opts.setup_target.as_ref())?;
     Ok(())
 }
 

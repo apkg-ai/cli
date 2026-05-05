@@ -3,12 +3,11 @@ use std::path::Path;
 
 use indicatif::{ProgressBar, ProgressStyle};
 
-use regex_lite::Regex;
-
 use crate::api::client::ApiClient;
 use crate::config::manifest::validate_platforms;
 use crate::config::{credentials, manifest};
 use crate::error::AppError;
+use crate::util::package::SCOPED_PACKAGE_NAME_RE;
 use crate::util::{display, integrity, tarball};
 
 /// Mirror of the server's `readme` size cap (`publishMetadataSchema.readme.max`).
@@ -95,8 +94,7 @@ pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
     }
 
     // Validate package name is scoped
-    let re = Regex::new(r"^@[a-z0-9-]+/[a-z0-9]([a-z0-9._-]*[a-z0-9])?$").unwrap();
-    if !re.is_match(&m.name) {
+    if !SCOPED_PACKAGE_NAME_RE.is_match(&m.name) {
         return Err(AppError::Other(format!(
             "Package name '{}' must be scoped: @username/name or @org/name",
             m.name

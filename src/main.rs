@@ -142,6 +142,7 @@ enum Commands {
     Publish,
 
     /// Remove a package from dependencies and delete it
+    #[command(visible_alias = "uninstall")]
     Remove {
         /// Package name
         package: String,
@@ -168,6 +169,7 @@ enum Commands {
     },
 
     /// Download and extract a package (or all deps from apkg.json)
+    #[command(visible_alias = "i")]
     Install {
         /// Package name[@version]. Omit to install all deps from apkg.json.
         package: Option<String>,

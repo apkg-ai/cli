@@ -210,6 +210,31 @@ fn test_remove_help() {
 }
 
 #[test]
+fn test_uninstall_alias_routes_to_remove() {
+    // `apkg uninstall --help` must show the remove command's help, proving
+    // the alias routes correctly.
+    cmd()
+        .args(["uninstall", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Remove a package from dependencies",
+        ))
+        .stdout(predicate::str::contains("--save-dev"));
+}
+
+#[test]
+fn test_install_short_alias_routes_correctly() {
+    // `apkg i --help` must show the install command's help.
+    cmd()
+        .args(["i", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Download and extract a package"))
+        .stdout(predicate::str::contains("--frozen-lockfile"));
+}
+
+#[test]
 fn test_remove_no_manifest() {
     let tmp = TempDir::new().unwrap();
     cmd()

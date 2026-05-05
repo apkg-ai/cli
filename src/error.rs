@@ -10,6 +10,27 @@ pub enum AppError {
     )]
     Network(String),
 
+    #[error("Network error (connection): {0}")]
+    #[diagnostic(
+        code(apkg::network_connect),
+        help("The server may be unreachable. Check the registry URL and your network.")
+    )]
+    NetworkConnect(String),
+
+    #[error("Network error (timeout): {0}")]
+    #[diagnostic(
+        code(apkg::network_timeout),
+        help("The server took too long to respond. A retry may succeed.")
+    )]
+    NetworkTimeout(String),
+
+    #[error("Network error (decode): {0}")]
+    #[diagnostic(
+        code(apkg::network_decode),
+        help("The server returned a body we couldn't read. This is usually a server-side issue.")
+    )]
+    NetworkDecode(String),
+
     #[error("API error: {message}")]
     #[diagnostic(code(apkg::api))]
     Api {
@@ -84,6 +105,13 @@ pub enum AppError {
     #[diagnostic(code(apkg::io))]
     Io(#[from] std::io::Error),
 
+    #[error("JSON error: {0}")]
+    #[diagnostic(
+        code(apkg::json),
+        help("The response did not match the expected JSON schema. This is usually a server-side issue.")
+    )]
+    Json(String),
+
     #[error("{0}")]
     #[diagnostic(code(apkg::other))]
     Other(String),
@@ -91,13 +119,22 @@ pub enum AppError {
 
 impl From<reqwest::Error> for AppError {
     fn from(err: reqwest::Error) -> Self {
-        AppError::Network(err.to_string())
+        let msg = err.to_string();
+        if err.is_connect() {
+            AppError::NetworkConnect(msg)
+        } else if err.is_timeout() {
+            AppError::NetworkTimeout(msg)
+        } else if err.is_decode() {
+            AppError::NetworkDecode(msg)
+        } else {
+            AppError::Network(msg)
+        }
     }
 }
 
 impl From<serde_json::Error> for AppError {
     fn from(err: serde_json::Error) -> Self {
-        AppError::Other(format!("JSON error: {err}"))
+        AppError::Json(err.to_string())
     }
 }
 
@@ -109,7 +146,8 @@ mod tests {
     fn test_from_serde_json_error() {
         let err: Result<serde_json::Value, _> = serde_json::from_str("not json");
         let app_err: AppError = err.unwrap_err().into();
-        assert!(app_err.to_string().contains("JSON error"));
+        assert!(matches!(app_err, AppError::Json(_)));
+        assert!(app_err.to_string().starts_with("JSON error"));
     }
 
     #[test]
@@ -124,7 +162,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_from_reqwest_error() {
+    async fn test_from_reqwest_error_transport() {
         // Provoke a real reqwest::Error by targeting an unroutable address.
         let err = reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(1))
@@ -135,7 +173,11 @@ mod tests {
             .await
             .unwrap_err();
         let app_err: AppError = err.into();
-        assert!(matches!(app_err, AppError::Network(_)));
+        // Any of connect / timeout / generic network is acceptable — depends on OS timing.
+        assert!(matches!(
+            app_err,
+            AppError::NetworkConnect(_) | AppError::NetworkTimeout(_) | AppError::Network(_)
+        ));
         assert!(app_err.to_string().starts_with("Network error"));
     }
 }

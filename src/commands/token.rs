@@ -74,8 +74,7 @@ async fn list(registry: Option<&str>, json: bool) -> Result<(), AppError> {
                 "expiresAt": t.expires_at,
                 "createdAt": t.created_at,
             })).collect::<Vec<_>>()
-        }))
-        .map_err(|e| AppError::Other(format!("Failed to serialize JSON: {e}")))?;
+        }))?;
         println!("{output}");
         return Ok(());
     }

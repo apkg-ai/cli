@@ -542,8 +542,10 @@ async fn parse_json_response<T: serde::de::DeserializeOwned>(
     resp: reqwest::Response,
 ) -> Result<T, AppError> {
     let body = resp.text().await?;
-    serde_json::from_str(&body)
-        .map_err(|e| AppError::Other(format!("Failed to parse response: {e}\nBody: {body}")))
+    serde_json::from_str(&body).map_err(|e| AppError::Parse {
+        what: "response body".into(),
+        cause: format!("{e}\nBody: {body}"),
+    })
 }
 
 fn encode_package_name(name: &str) -> String {

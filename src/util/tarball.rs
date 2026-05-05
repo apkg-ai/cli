@@ -22,17 +22,17 @@ pub fn create_tarball(dir: &Path) -> Result<Vec<u8>, AppError> {
 
     let buf = Vec::new();
     let enc = zstd::Encoder::new(buf, 19)
-        .map_err(|e| AppError::Other(format!("Failed to create zstd encoder: {e}")))?;
+        .map_err(|e| AppError::Tarball(format!("Failed to create zstd encoder: {e}")))?;
     let mut archive = tar::Builder::new(enc);
 
     add_dir_recursive(&mut archive, dir, dir, &ignore_patterns)?;
 
     let enc = archive
         .into_inner()
-        .map_err(|e| AppError::Other(format!("Failed to finalize tarball: {e}")))?;
+        .map_err(|e| AppError::Tarball(format!("Failed to finalize tarball: {e}")))?;
     let compressed = enc
         .finish()
-        .map_err(|e| AppError::Other(format!("Failed to compress tarball: {e}")))?;
+        .map_err(|e| AppError::Tarball(format!("Failed to compress tarball: {e}")))?;
 
     Ok(compressed)
 }
@@ -57,11 +57,11 @@ pub fn extract_tarball(data: &[u8], dest: &Path) -> Result<(), AppError> {
 
     let cursor = Cursor::new(data);
     let decoder = zstd::Decoder::new(cursor)
-        .map_err(|e| AppError::Other(format!("Failed to create zstd decoder: {e}")))?;
+        .map_err(|e| AppError::Tarball(format!("Failed to create zstd decoder: {e}")))?;
     let capped = decoder.take(MAX_DECOMPRESSED_BYTES);
     let mut archive = tar::Archive::new(capped);
     archive.unpack(dest).map_err(|e| {
-        AppError::Other(format!(
+        AppError::Tarball(format!(
             "Failed to extract tarball (decompressed size exceeds {MAX_DECOMPRESSED_BYTES}-byte cap, or archive is malformed): {e}"
         ))
     })?;
@@ -102,7 +102,7 @@ fn add_dir_recursive<W: Write>(
     ignore_patterns: &[String],
 ) -> Result<(), AppError> {
     let entries = fs::read_dir(current).map_err(|e| {
-        AppError::Other(format!(
+        AppError::Tarball(format!(
             "Failed to read directory {}: {e}",
             current.display()
         ))
@@ -113,7 +113,7 @@ fn add_dir_recursive<W: Write>(
         let path = entry.path();
         let relative = path
             .strip_prefix(base)
-            .map_err(|e| AppError::Other(format!("Path strip error: {e}")))?;
+            .map_err(|e| AppError::Tarball(format!("Path strip error: {e}")))?;
         let relative_str = relative.to_string_lossy().to_string();
 
         if should_ignore(&relative_str, ignore_patterns) {
@@ -127,7 +127,7 @@ fn add_dir_recursive<W: Write>(
             archive
                 .append_path_with_name(&path, &relative_str)
                 .map_err(|e| {
-                    AppError::Other(format!("Failed to add {relative_str} to tarball: {e}"))
+                    AppError::Tarball(format!("Failed to add {relative_str} to tarball: {e}"))
                 })?;
         }
     }

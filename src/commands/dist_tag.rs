@@ -37,7 +37,7 @@ async fn run_add(
 ) -> Result<(), AppError> {
     let (name, version) = parse_package_spec(package_at_version);
     let version = version.ok_or_else(|| {
-        AppError::Other(
+        AppError::InvalidInput(
             "Version is required. Usage: apkg dist-tag add <pkg>@<version> <tag>".to_string(),
         )
     })?;

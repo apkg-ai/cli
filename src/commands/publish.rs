@@ -69,7 +69,7 @@ fn build_publish_metadata(
             ))
         })?;
         if content.len() > MAX_README_BYTES {
-            return Err(AppError::Other(format!(
+            return Err(AppError::InvalidInput(format!(
                 "Readme file '{readme_filename}' is {} bytes; registry limit is {MAX_README_BYTES} bytes.",
                 content.len()
             )));
@@ -88,14 +88,14 @@ pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
     let m = manifest::load(&cwd)?;
 
     if !m.package_type.is_publishable() {
-        return Err(AppError::Other(
+        return Err(AppError::InvalidInput(
             "Cannot publish a project. Only skill, agent, command, and rule packages can be published.".to_string(),
         ));
     }
 
     // Validate package name is scoped
     if !SCOPED_PACKAGE_NAME_RE.is_match(&m.name) {
-        return Err(AppError::Other(format!(
+        return Err(AppError::InvalidInput(format!(
             "Package name '{}' must be scoped: @username/name or @org/name",
             m.name
         )));

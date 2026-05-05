@@ -19,8 +19,10 @@ pub async fn run() -> Result<(), AppError> {
 
 async fn check(url: &str) -> Result<(), AppError> {
     let current_raw = env!("CARGO_PKG_VERSION");
-    let current = semver::Version::parse(current_raw)
-        .map_err(|e| AppError::Other(format!("invalid compiled-in version: {e}")))?;
+    let current = semver::Version::parse(current_raw).map_err(|e| AppError::Parse {
+        what: "compiled-in version".into(),
+        cause: e.to_string(),
+    })?;
 
     let client = reqwest::Client::builder()
         .user_agent(format!("apkg-cli/{current_raw}"))
@@ -42,19 +44,21 @@ async fn check(url: &str) -> Result<(), AppError> {
                 .and_then(|v| v.to_str().ok())
                 == Some("0")
         {
-            return Err(AppError::Other(
+            return Err(AppError::Environment(
                 "GitHub API rate limit exceeded. Try again later.".to_string(),
             ));
         }
-        return Err(AppError::Other(format!(
+        return Err(AppError::Environment(format!(
             "GitHub API returned HTTP {status}"
         )));
     }
 
     let release: LatestRelease = resp.json().await?;
     let tag = release.tag_name.trim_start_matches('v');
-    let latest = semver::Version::parse(tag)
-        .map_err(|e| AppError::Other(format!("unexpected release tag '{tag}': {e}")))?;
+    let latest = semver::Version::parse(tag).map_err(|e| AppError::Parse {
+        what: format!("unexpected release tag '{tag}'"),
+        cause: e.to_string(),
+    })?;
 
     match current.cmp(&latest) {
         std::cmp::Ordering::Equal => {

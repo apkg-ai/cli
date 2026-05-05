@@ -77,7 +77,7 @@ pub fn run_unlink(action: &UnlinkAction<'_>) -> Result<(), AppError> {
                 .symlink_metadata()
                 .is_ok_and(|m| m.file_type().is_symlink());
             if !is_symlink {
-                return Err(AppError::Other(format!(
+                return Err(AppError::InvalidInput(format!(
                     "{package} is not a linked package"
                 )));
             }
@@ -101,25 +101,25 @@ fn resolve_target(target: &str, cwd: &Path) -> Result<(String, std::path::PathBu
     if is_path {
         let raw = if let Some(stripped) = target.strip_prefix('~') {
             let home = dirs::home_dir()
-                .ok_or_else(|| AppError::Other("Cannot determine home directory".into()))?;
+                .ok_or_else(|| AppError::Environment("Cannot determine home directory".into()))?;
             home.join(stripped.strip_prefix('/').unwrap_or(stripped))
         } else {
             cwd.join(target)
         };
         let resolved = raw
             .canonicalize()
-            .map_err(|_| AppError::Other(format!("Path does not exist: {target}")))?;
+            .map_err(|_| AppError::InvalidInput(format!("Path does not exist: {target}")))?;
         let m = manifest::load(&resolved)?;
         Ok((m.name, resolved))
     } else {
         let entry = links::lookup(target)?.ok_or_else(|| {
-            AppError::Other(format!(
+            AppError::InvalidInput(format!(
                 "{target} is not registered globally. Run `apkg link` in the package directory first, or provide a path."
             ))
         })?;
         let source = std::path::PathBuf::from(&entry.path);
         if !source.exists() {
-            return Err(AppError::Other(format!(
+            return Err(AppError::InvalidInput(format!(
                 "Linked path no longer exists: {}",
                 entry.path
             )));

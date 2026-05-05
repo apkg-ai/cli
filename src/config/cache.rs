@@ -43,7 +43,7 @@ pub fn cache_dir() -> Result<PathBuf, AppError> {
         return Ok(PathBuf::from(dir));
     }
     let home = dirs::home_dir()
-        .ok_or_else(|| AppError::Other("Cannot determine home directory".into()))?;
+        .ok_or_else(|| AppError::Environment("Cannot determine home directory".into()))?;
     Ok(home.join(".apkg").join("cache"))
 }
 
@@ -79,8 +79,10 @@ pub fn load(name: &str, version: &str) -> Result<Option<CacheEntry>, AppError> {
 
     let data = fs::read(&tarball_path)?;
     let meta_content = fs::read_to_string(&metadata_path)?;
-    let meta: CacheMetadata = serde_json::from_str(&meta_content)
-        .map_err(|e| AppError::Other(format!("Invalid cache metadata: {e}")))?;
+    let meta: CacheMetadata = serde_json::from_str(&meta_content).map_err(|e| AppError::Parse {
+        what: "cache metadata".into(),
+        cause: e.to_string(),
+    })?;
 
     Ok(Some(CacheEntry {
         data,

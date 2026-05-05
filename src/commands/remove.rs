@@ -22,7 +22,7 @@ pub fn run(opts: &RemoveOptions<'_>) -> Result<(), AppError> {
     };
 
     let Some(deps) = deps else {
-        return Err(AppError::Other(format!(
+        return Err(AppError::InvalidInput(format!(
             "Package \"{}\" is not in {}",
             opts.package,
             opts.category.label(),
@@ -30,7 +30,7 @@ pub fn run(opts: &RemoveOptions<'_>) -> Result<(), AppError> {
     };
 
     if deps.remove(opts.package).is_none() {
-        return Err(AppError::Other(format!(
+        return Err(AppError::InvalidInput(format!(
             "Package \"{}\" is not in {}",
             opts.package,
             opts.category.label(),

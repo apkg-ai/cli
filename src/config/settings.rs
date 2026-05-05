@@ -151,8 +151,10 @@ impl Settings {
             return Ok(Self::default());
         }
         let content = fs::read_to_string(&path)?;
-        let settings: Self = serde_json::from_str(&content)
-            .map_err(|e| AppError::Other(format!("Invalid config.json: {e}")))?;
+        let settings: Self = serde_json::from_str(&content).map_err(|e| AppError::Parse {
+            what: "config.json".into(),
+            cause: e.to_string(),
+        })?;
         Ok(settings)
     }
 
@@ -169,7 +171,7 @@ impl Settings {
 
 fn settings_path() -> Result<PathBuf, AppError> {
     let home = dirs::home_dir()
-        .ok_or_else(|| AppError::Other("Cannot determine home directory".into()))?;
+        .ok_or_else(|| AppError::Environment("Cannot determine home directory".into()))?;
     Ok(home.join(".apkg").join("config.json"))
 }
 

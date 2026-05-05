@@ -849,7 +849,7 @@ fn test_verify_no_lockfile() {
         .current_dir(tmp.path())
         .assert()
         .failure()
-        .stderr(predicate::str::contains("No lockfile found"));
+        .stderr(predicate::str::contains("Lockfile not found"));
 }
 
 #[test]

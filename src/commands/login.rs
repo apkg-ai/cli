@@ -22,15 +22,15 @@ fn extract_tokens(resp: LoginResponse) -> Result<TokenOutcome, AppError> {
     if resp.requires_mfa() {
         let mfa_token = resp
             .mfa_token
-            .ok_or_else(|| AppError::Other("MFA required but no MFA token returned".to_string()))?;
+            .ok_or_else(|| AppError::Environment("server did not return MFA token".to_string()))?;
         Ok(TokenOutcome::MfaRequired { mfa_token })
     } else {
-        let access_token = resp
-            .access_token
-            .ok_or_else(|| AppError::Other("Login response missing access token".to_string()))?;
-        let refresh_token = resp
-            .refresh_token
-            .ok_or_else(|| AppError::Other("Login response missing refresh token".to_string()))?;
+        let access_token = resp.access_token.ok_or_else(|| {
+            AppError::Environment("Login response missing access token".to_string())
+        })?;
+        let refresh_token = resp.refresh_token.ok_or_else(|| {
+            AppError::Environment("Login response missing refresh token".to_string())
+        })?;
         Ok(TokenOutcome::Tokens {
             access_token,
             refresh_token,
@@ -51,7 +51,7 @@ fn prompt_mfa_code() -> Result<String, AppError> {
     Input::new()
         .with_prompt("Enter TOTP code or recovery code")
         .interact_text()
-        .map_err(|e| AppError::Other(format!("Input error: {e}")))
+        .map_err(|e| AppError::Interactive(e.to_string()))
 }
 
 async fn complete_mfa_challenge(
@@ -87,11 +87,11 @@ pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
     let username: String = Input::new()
         .with_prompt("Username")
         .interact_text()
-        .map_err(|e| AppError::Other(format!("Input error: {e}")))?;
+        .map_err(|e| AppError::Interactive(e.to_string()))?;
     let password: String = Password::new()
         .with_prompt("Password")
         .interact()
-        .map_err(|e| AppError::Other(format!("Input error: {e}")))?;
+        .map_err(|e| AppError::Interactive(e.to_string()))?;
 
     let client = ApiClient::new(registry)?;
     let resp = client.login(&username, &password).await?;
@@ -197,9 +197,7 @@ mod tests {
     fn test_extract_tokens_mfa_missing_token() {
         let resp = make_response(None, None, Some(true), None);
         let err = extract_tokens(resp).unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("MFA required but no MFA token returned"));
+        assert!(err.to_string().contains("MFA token"));
     }
 
     #[test]

@@ -44,7 +44,7 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
         .default(default_name)
         .validate_with(|input: &String| -> Result<(), String> { validate_package_name(input) })
         .interact_text()
-        .map_err(|e| AppError::Other(format!("Input error: {e}")))?;
+        .map_err(|e| AppError::Interactive(e.to_string()))?;
 
     let version: String = Input::new()
         .with_prompt("Version")
@@ -55,35 +55,39 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
                 .map_err(|e| format!("Invalid semver: {e}"))
         })
         .interact_text()
-        .map_err(|e| AppError::Other(format!("Input error: {e}")))?;
+        .map_err(|e| AppError::Interactive(e.to_string()))?;
 
     let type_idx = Select::new()
         .with_prompt("Package type")
         .items(PackageType::VARIANTS)
         .default(0)
         .interact()
-        .map_err(|e| AppError::Other(format!("Input error: {e}")))?;
+        .map_err(|e| AppError::Interactive(e.to_string()))?;
     let package_type: PackageType =
-        serde_json::from_str(&format!("\"{}\"", PackageType::VARIANTS[type_idx]))
-            .map_err(|e| AppError::Other(format!("Type parse error: {e}")))?;
+        serde_json::from_str(&format!("\"{}\"", PackageType::VARIANTS[type_idx])).map_err(|e| {
+            AppError::Parse {
+                what: "package type".into(),
+                cause: e.to_string(),
+            }
+        })?;
 
     let description: String = Input::new()
         .with_prompt("Description")
         .default(String::new())
         .interact_text()
-        .map_err(|e| AppError::Other(format!("Input error: {e}")))?;
+        .map_err(|e| AppError::Interactive(e.to_string()))?;
 
     let license: String = Input::new()
         .with_prompt("License")
         .default("MIT".to_string())
         .interact_text()
-        .map_err(|e| AppError::Other(format!("Input error: {e}")))?;
+        .map_err(|e| AppError::Interactive(e.to_string()))?;
 
     let keywords_input: String = Input::new()
         .with_prompt("Keywords (comma-separated)")
         .default(String::new())
         .interact_text()
-        .map_err(|e| AppError::Other(format!("Input error: {e}")))?;
+        .map_err(|e| AppError::Interactive(e.to_string()))?;
     let keywords: Option<Vec<String>> = if keywords_input.is_empty() {
         None
     } else {
@@ -107,7 +111,7 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
         .items(KNOWN_PLATFORMS)
         .defaults(&defaults)
         .interact()
-        .map_err(|e| AppError::Other(format!("Input error: {e}")))?;
+        .map_err(|e| AppError::Interactive(e.to_string()))?;
     let platform: Vec<String> = platform_idxs
         .iter()
         .map(|&i| KNOWN_PLATFORMS[i].to_string())

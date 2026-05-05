@@ -112,6 +112,38 @@ pub enum AppError {
     )]
     Json(String),
 
+    #[error("Invalid input: {0}")]
+    #[diagnostic(code(apkg::invalid_input))]
+    InvalidInput(String),
+
+    #[error("Environment error: {0}")]
+    #[diagnostic(
+        code(apkg::environment),
+        help("apkg could not determine a required path or runtime context. Check your user home directory and environment variables.")
+    )]
+    Environment(String),
+
+    #[error("Failed to parse {what}: {cause}")]
+    #[diagnostic(
+        code(apkg::parse),
+        help("The content was malformed. If this is a local file, check it by hand; if it came from the registry, the server returned something unexpected.")
+    )]
+    Parse { what: String, cause: String },
+
+    #[error("Tarball error: {0}")]
+    #[diagnostic(
+        code(apkg::tarball),
+        help("Packing or unpacking the tarball failed. This is usually a local filesystem or disk issue.")
+    )]
+    Tarball(String),
+
+    #[error("Interactive prompt error: {0}")]
+    #[diagnostic(
+        code(apkg::interactive),
+        help("Could not read from the terminal. If you're in a non-interactive shell or CI, pass values via CLI flags instead.")
+    )]
+    Interactive(String),
+
     #[error("{0}")]
     #[diagnostic(code(apkg::other))]
     Other(String),
@@ -148,6 +180,28 @@ mod tests {
         let app_err: AppError = err.unwrap_err().into();
         assert!(matches!(app_err, AppError::Json(_)));
         assert!(app_err.to_string().starts_with("JSON error"));
+    }
+
+    #[test]
+    fn test_new_variants_display() {
+        assert!(AppError::InvalidInput("x".into())
+            .to_string()
+            .starts_with("Invalid input"));
+        assert!(AppError::Environment("x".into())
+            .to_string()
+            .starts_with("Environment error"));
+        assert!(AppError::Parse {
+            what: "x".into(),
+            cause: "y".into()
+        }
+        .to_string()
+        .starts_with("Failed to parse x"));
+        assert!(AppError::Tarball("x".into())
+            .to_string()
+            .starts_with("Tarball error"));
+        assert!(AppError::Interactive("x".into())
+            .to_string()
+            .starts_with("Interactive prompt error"));
     }
 
     #[test]

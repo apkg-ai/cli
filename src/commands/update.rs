@@ -55,7 +55,7 @@ fn plan_resolution(
 
     let targets: Vec<String> = if let Some(name) = opts.package {
         if !deps.contains_key(name) {
-            return Err(AppError::Other(format!(
+            return Err(AppError::InvalidInput(format!(
                 "Package \"{name}\" is not in dependencies"
             )));
         }

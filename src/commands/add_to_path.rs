@@ -23,7 +23,7 @@ enum Shell {
 
 pub fn run() -> Result<(), AppError> {
     let home = dirs::home_dir()
-        .ok_or_else(|| AppError::Other("Cannot determine home directory".into()))?;
+        .ok_or_else(|| AppError::Environment("Cannot determine home directory".into()))?;
 
     let paths = resolve_paths(&home)?;
     ensure_binary(&paths)?;
@@ -45,7 +45,9 @@ pub fn run() -> Result<(), AppError> {
 fn resolve_paths(home: &Path) -> Result<Paths, AppError> {
     let current_exe = std::env::current_exe()
         .and_then(|p| p.canonicalize())
-        .map_err(|e| AppError::Other(format!("Cannot determine current executable path: {e}")))?;
+        .map_err(|e| {
+            AppError::Environment(format!("Cannot determine current executable path: {e}"))
+        })?;
 
     let bin_dir = home.join(".apkg").join("bin");
     let target_bin = bin_dir.join("apkg");

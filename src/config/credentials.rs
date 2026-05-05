@@ -16,7 +16,7 @@ pub struct Credentials {
 
 fn credentials_path() -> Result<PathBuf, AppError> {
     let home = dirs::home_dir()
-        .ok_or_else(|| AppError::Other("Cannot determine home directory".into()))?;
+        .ok_or_else(|| AppError::Environment("Cannot determine home directory".into()))?;
     Ok(home.join(".apkg").join("credentials.json"))
 }
 

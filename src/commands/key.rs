@@ -132,13 +132,14 @@ async fn register(
 ) -> Result<(), AppError> {
     let local_keys = keys::list_local()?;
     if local_keys.is_empty() {
-        return Err(AppError::Other(
+        return Err(AppError::InvalidInput(
             "No local keys found. Generate one first: apkg key generate --name <name>".into(),
         ));
     }
 
     let stored = if let Some(kid) = key_id {
-        keys::load(kid)?.ok_or_else(|| AppError::Other(format!("Local key not found: {kid}")))?
+        keys::load(kid)?
+            .ok_or_else(|| AppError::InvalidInput(format!("Local key not found: {kid}")))?
     } else if local_keys.len() == 1 {
         local_keys
             .into_iter()
@@ -153,7 +154,7 @@ async fn register(
             .with_prompt("Select a key to register")
             .items(&items)
             .interact()
-            .map_err(|e| AppError::Other(format!("Input error: {e}")))?;
+            .map_err(|e| AppError::Interactive(e.to_string()))?;
         local_keys
             .into_iter()
             .nth(selection)
@@ -199,25 +200,30 @@ async fn rotate(
     name: Option<&str>,
 ) -> Result<(), AppError> {
     let old_key = keys::load(old_key_id)?.ok_or_else(|| {
-        AppError::Other(format!(
+        AppError::InvalidInput(format!(
             "Local key not found: {old_key_id}. Rotation requires the old private key to sign an attestation."
         ))
     })?;
 
     // Decode into a `Zeroizing<Vec<u8>>` so the intermediate base64-decoded
     // bytes don't outlive the function, even on the error path.
-    let old_private_bytes: Zeroizing<Vec<u8>> = Zeroizing::new(
-        BASE64
-            .decode(old_key.private_key.as_str())
-            .map_err(|e| AppError::Other(format!("Failed to decode old private key: {e}")))?,
-    );
+    let old_private_bytes: Zeroizing<Vec<u8>> =
+        Zeroizing::new(BASE64.decode(old_key.private_key.as_str()).map_err(|e| {
+            AppError::Parse {
+                what: "private key".into(),
+                cause: e.to_string(),
+            }
+        })?);
     // Copy into a fixed-size array (SigningKey::from_bytes signature). Wrapped
     // in Zeroizing so the stack copy also zeroes on drop.
     let old_private_bytes: Zeroizing<[u8; 32]> = Zeroizing::new(
         old_private_bytes
             .as_slice()
             .try_into()
-            .map_err(|_| AppError::Other("Invalid private key length".into()))?,
+            .map_err(|_| AppError::Parse {
+                what: "private key".into(),
+                cause: "expected 32 bytes".into(),
+            })?,
     );
     let old_signing_key = SigningKey::from_bytes(&old_private_bytes);
 

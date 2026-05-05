@@ -16,7 +16,7 @@ pub struct LinkEntry {
 /// Return the global link-store directory (`~/.apkg/links/`).
 pub fn links_dir() -> Result<PathBuf, AppError> {
     let home = dirs::home_dir()
-        .ok_or_else(|| AppError::Other("Cannot determine home directory".into()))?;
+        .ok_or_else(|| AppError::Environment("Cannot determine home directory".into()))?;
     Ok(home.join(".apkg").join("links"))
 }
 
@@ -62,8 +62,10 @@ pub fn lookup(name: &str) -> Result<Option<LinkEntry>, AppError> {
         return Ok(None);
     }
     let content = fs::read_to_string(&path)?;
-    let entry: LinkEntry = serde_json::from_str(&content)
-        .map_err(|e| AppError::Other(format!("Invalid link entry: {e}")))?;
+    let entry: LinkEntry = serde_json::from_str(&content).map_err(|e| AppError::Parse {
+        what: "link entry".into(),
+        cause: e.to_string(),
+    })?;
     Ok(Some(entry))
 }
 

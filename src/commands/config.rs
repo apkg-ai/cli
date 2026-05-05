@@ -24,7 +24,7 @@ pub fn run(action: ConfigAction<'_>) -> Result<(), AppError> {
             match settings.get(key) {
                 Some(value) => println!("{value}"),
                 None => {
-                    return Err(AppError::Other(format!("Config key not set: {key}")));
+                    return Err(AppError::InvalidInput(format!("Config key not set: {key}")));
                 }
             }
         }
@@ -45,7 +45,7 @@ pub fn run(action: ConfigAction<'_>) -> Result<(), AppError> {
                 settings.save()?;
                 display::success(&format!("Deleted {key}"));
             } else {
-                return Err(AppError::Other(format!("Config key not set: {key}")));
+                return Err(AppError::InvalidInput(format!("Config key not set: {key}")));
             }
         }
     }
@@ -61,13 +61,13 @@ fn validate_key(key: &str) -> Result<(), AppError> {
         if KNOWN_SETUP_TOOLS.contains(&tool) {
             Ok(())
         } else {
-            Err(AppError::Other(format!(
+            Err(AppError::InvalidInput(format!(
                 "Unknown tool: {tool}\nValid tools: {}",
                 KNOWN_SETUP_TOOLS.join(", ")
             )))
         }
     } else {
-        Err(AppError::Other(format!(
+        Err(AppError::InvalidInput(format!(
             "Unknown config key: {key}\nValid keys: registry, symlinkClaudeMd, services.<name>, defaultSetup.<tool> ({})",
             KNOWN_SETUP_TOOLS.join(", ")
         )))

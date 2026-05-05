@@ -45,10 +45,11 @@ pub fn load(dir: &Path) -> Result<Option<Lockfile>, AppError> {
     if !path.exists() {
         return Ok(None);
     }
-    let content = fs::read_to_string(&path)
-        .map_err(|e| AppError::Other(format!("Failed to read {LOCKFILE_NAME}: {e}")))?;
-    let lockfile: Lockfile = serde_json::from_str(&content)
-        .map_err(|e| AppError::Other(format!("Invalid {LOCKFILE_NAME}: {e}")))?;
+    let content = fs::read_to_string(&path)?;
+    let lockfile: Lockfile = serde_json::from_str(&content).map_err(|e| AppError::Parse {
+        what: LOCKFILE_NAME.to_string(),
+        cause: e.to_string(),
+    })?;
     Ok(Some(lockfile))
 }
 

@@ -52,17 +52,15 @@ pub async fn resolve(
         // Already resolved — check compatibility
         if let Some(existing) = resolved.get(&name) {
             let normalized = normalize_range(&range_str);
-            let req = VersionReq::parse(&normalized).map_err(|e| {
-                AppError::Other(format!(
-                    "Invalid version range '{range_str}' for {name}: {e}"
-                ))
+            let req = VersionReq::parse(&normalized).map_err(|e| AppError::Parse {
+                what: format!("version range '{range_str}' for {name}"),
+                cause: e.to_string(),
             })?;
-            let existing_ver = semver::Version::parse(&existing.version).map_err(|e| {
-                AppError::Other(format!(
-                    "Invalid resolved version '{}' for {name}: {e}",
-                    existing.version
-                ))
-            })?;
+            let existing_ver =
+                semver::Version::parse(&existing.version).map_err(|e| AppError::Parse {
+                    what: format!("resolved version '{}' for {name}", existing.version),
+                    cause: e.to_string(),
+                })?;
             if req.matches(&existing_ver) {
                 continue;
             }
@@ -73,10 +71,9 @@ pub async fn resolve(
         }
 
         let normalized = normalize_range(&range_str);
-        let req = VersionReq::parse(&normalized).map_err(|e| {
-            AppError::Other(format!(
-                "Invalid version range '{range_str}' for {name}: {e}"
-            ))
+        let req = VersionReq::parse(&normalized).map_err(|e| AppError::Parse {
+            what: format!("version range '{range_str}' for {name}"),
+            cause: e.to_string(),
         })?;
 
         // Try lockfile seed

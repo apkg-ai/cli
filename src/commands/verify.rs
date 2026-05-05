@@ -79,14 +79,13 @@ fn parse_lockfile_key(key: &str) -> Option<(&str, &str)> {
 pub async fn run(opts: VerifyOptions<'_>) -> Result<(), AppError> {
     let cwd = env::current_dir()?;
 
-    let lockfile = lockfile::load(&cwd)?.ok_or_else(|| {
-        AppError::Other("No lockfile found. Run `apkg install` first.".to_string())
-    })?;
+    let lockfile = lockfile::load(&cwd)?.ok_or(AppError::LockfileNotFound)?;
 
     // Determine which packages to verify
     let targets: Vec<(&str, &str, &lockfile::LockedPackage)> = if let Some(name) = opts.package {
-        let entry = lockfile::find_by_name(&lockfile, name)
-            .ok_or_else(|| AppError::Other(format!("Package \"{name}\" not found in lockfile.")))?;
+        let entry = lockfile::find_by_name(&lockfile, name).ok_or_else(|| {
+            AppError::InvalidInput(format!("Package \"{name}\" not found in lockfile."))
+        })?;
         // Recover the version from the entry
         vec![(name, entry.version.as_str(), entry)]
     } else {
@@ -678,7 +677,7 @@ mod tests {
         .await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("lockfile") || err.contains("install"));
+        assert!(err.to_lowercase().contains("lockfile"));
     }
 
     #[tokio::test]

@@ -590,7 +590,7 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             undo,
         } => {
             if !undo && message.is_none() {
-                return Err(AppError::Other(
+                return Err(AppError::InvalidInput(
                     "A deprecation message is required. Use --undo to remove deprecation."
                         .to_string(),
                 ));

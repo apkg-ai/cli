@@ -31,7 +31,7 @@ pub fn validate_package_name(name: &str) -> Result<&str, AppError> {
     if is_safe_package_name(name) {
         Ok(name)
     } else {
-        Err(AppError::Other(format!(
+        Err(AppError::InvalidInput(format!(
             "Invalid package name '{name}': must match @scope/name or name, lowercase letters/digits/dots/hyphens/underscores only."
         )))
     }

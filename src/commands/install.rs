@@ -43,6 +43,14 @@ async fn install_all(opts: &InstallOptions<'_>) -> Result<(), AppError> {
         return Err(AppError::LockfileNotFound);
     }
 
+    // Nicer-than-guard UX: explain offline install needs a lockfile before
+    // anything ApiClient-shaped can surface the same error further in.
+    if crate::util::offline::is_offline() && existing_lockfile.is_none() {
+        return Err(AppError::OfflineModeBlocked {
+            operation: "resolve without a lockfile".into(),
+        });
+    }
+
     let client = ApiClient::new(opts.registry)?;
     let start = std::time::Instant::now();
 
@@ -955,6 +963,65 @@ mod tests {
         // Lockfile still present + still mentions foo.
         let lf = lockfile::load(tmp.path()).unwrap().unwrap();
         assert!(lf.packages.contains_key("foo@1.0.0"));
+    }
+
+    #[tokio::test]
+    async fn test_install_all_offline_succeeds_with_lockfile_and_cache() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let _cwd = CwdGuard;
+
+        // Prime the tarball cache so nothing needs the network.
+        let tarball = make_test_tarball();
+        let expected_integrity = crate::util::integrity::sha256_integrity(&tarball);
+        crate::config::cache::store("foo", "1.0.0", &tarball, &expected_integrity).unwrap();
+
+        write_project_manifest(tmp.path(), &[("foo", "^1.0.0")]);
+        write_lockfile(tmp.path(), &[("foo", "1.0.0", &expected_integrity)]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        std::env::set_var("APKG_OFFLINE", "1");
+        // No MockServer mounted — offline install must not hit the network.
+        let result = run(InstallOptions {
+            package: None,
+            registry: None,
+            setup_target: None,
+            frozen_lockfile: false,
+        })
+        .await;
+        std::env::remove_var("APKG_OFFLINE");
+
+        assert!(result.is_ok(), "offline install failed: {:?}", result.err());
+        assert!(tmp.path().join("apkg_packages/foo/index.ts").exists());
+    }
+
+    #[tokio::test]
+    async fn test_install_all_offline_fails_without_lockfile() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let _cwd = CwdGuard;
+
+        // Manifest but no lockfile.
+        write_project_manifest(tmp.path(), &[("foo", "^1.0.0")]);
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        std::env::set_var("APKG_OFFLINE", "1");
+        let result = run(InstallOptions {
+            package: None,
+            registry: None,
+            setup_target: None,
+            frozen_lockfile: false,
+        })
+        .await;
+        std::env::remove_var("APKG_OFFLINE");
+
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, AppError::OfflineModeBlocked { .. }),
+            "unexpected error: {err}"
+        );
     }
 
     #[tokio::test]

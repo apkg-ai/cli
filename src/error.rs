@@ -31,6 +31,13 @@ pub enum AppError {
     )]
     NetworkDecode(String),
 
+    #[error("Offline mode is enabled; cannot {operation}")]
+    #[diagnostic(
+        code(apkg::offline_mode_blocked),
+        help("Disable offline mode (remove --offline / unset APKG_OFFLINE) or ensure the needed data is present in the local cache and lockfile.")
+    )]
+    OfflineModeBlocked { operation: String },
+
     #[error("API error: {message}")]
     #[diagnostic(code(apkg::api))]
     Api {
@@ -202,6 +209,13 @@ mod tests {
         assert!(AppError::Interactive("x".into())
             .to_string()
             .starts_with("Interactive prompt error"));
+        assert_eq!(
+            AppError::OfflineModeBlocked {
+                operation: "fetch package metadata".into()
+            }
+            .to_string(),
+            "Offline mode is enabled; cannot fetch package metadata"
+        );
     }
 
     #[test]

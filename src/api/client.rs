@@ -71,6 +71,7 @@ impl ApiClient {
     }
 
     pub async fn login(&self, username: &str, password: &str) -> Result<LoginResponse, AppError> {
+        ensure_online("log in")?;
         let url = self.url("auth", "/auth/login");
         let body = serde_json::json!({
             "username": username,
@@ -96,6 +97,7 @@ impl ApiClient {
         mfa_token: &str,
         code: &str,
     ) -> Result<MfaChallengeResponse, AppError> {
+        ensure_online("complete MFA challenge")?;
         let url = self.url("mfa", "/auth/mfa/challenge");
         let body = serde_json::json!({
             "mfaToken": mfa_token,
@@ -117,6 +119,7 @@ impl ApiClient {
     }
 
     pub async fn whoami(&self) -> Result<WhoamiResponse, AppError> {
+        ensure_online("fetch current user")?;
         let url = self.url("auth", "/auth/whoami");
         let headers = self.require_auth_headers()?;
         let resp = self.client.get(&url).headers(headers).send().await?;
@@ -140,6 +143,8 @@ impl ApiClient {
                 }
             }
         }
+
+        ensure_online("fetch package metadata")?;
 
         let encoded_name = encode_package_name(name);
         let url = self.url("package", &format!("/packages/{encoded_name}"));
@@ -171,6 +176,7 @@ impl ApiClient {
         name: &str,
         version: &str,
     ) -> Result<(Vec<u8>, Option<String>), AppError> {
+        ensure_online("download package tarball")?;
         let encoded_name = encode_package_name(name);
         let url = self.url(
             "package",
@@ -200,6 +206,7 @@ impl ApiClient {
         metadata_json: &str,
         tarball_bytes: Vec<u8>,
     ) -> Result<PublishResponse, AppError> {
+        ensure_online("publish a package")?;
         let encoded_name = encode_package_name(name);
         let url = self.url("package", &format!("/packages/{encoded_name}"));
         let headers = self.require_auth_headers()?;
@@ -234,6 +241,7 @@ impl ApiClient {
         public_key: &str,
         name: &str,
     ) -> Result<RegisterKeyResponse, AppError> {
+        ensure_online("register a signing key")?;
         let url = self.url("key", "/auth/keys");
         let headers = self.require_auth_headers()?;
         let body = serde_json::json!({
@@ -257,6 +265,7 @@ impl ApiClient {
     }
 
     pub async fn list_keys(&self) -> Result<ListKeysResponse, AppError> {
+        ensure_online("list signing keys")?;
         let url = self.url("key", "/auth/keys");
         let headers = self.require_auth_headers()?;
         let resp = self.client.get(&url).headers(headers).send().await?;
@@ -274,6 +283,7 @@ impl ApiClient {
         reason: &str,
         message: Option<&str>,
     ) -> Result<RevokeKeyResponse, AppError> {
+        ensure_online("revoke a signing key")?;
         let encoded_key_id = urlencoding::encode(key_id);
         let url = self.url("key", &format!("/auth/keys/{encoded_key_id}/revoke"));
         let headers = self.require_auth_headers()?;
@@ -305,6 +315,7 @@ impl ApiClient {
         new_public_key: &str,
         attestation: &str,
     ) -> Result<RotateKeyResponse, AppError> {
+        ensure_online("rotate a signing key")?;
         let url = self.url("key", "/auth/keys/rotate");
         let headers = self.require_auth_headers()?;
         let body = serde_json::json!({
@@ -335,6 +346,7 @@ impl ApiClient {
         expires_in: &str,
         package_scope: Option<&str>,
     ) -> Result<CreateTokenResponse, AppError> {
+        ensure_online("create an API token")?;
         let url = self.url("token", "/auth/tokens");
         let headers = self.require_auth_headers()?;
         let mut body = serde_json::json!({
@@ -362,6 +374,7 @@ impl ApiClient {
     }
 
     pub async fn list_tokens(&self) -> Result<ListTokensResponse, AppError> {
+        ensure_online("list API tokens")?;
         let url = self.url("token", "/auth/tokens");
         let headers = self.require_auth_headers()?;
         let resp = self.client.get(&url).headers(headers).send().await?;
@@ -374,6 +387,7 @@ impl ApiClient {
     }
 
     pub async fn revoke_token(&self, id: &str) -> Result<(), AppError> {
+        ensure_online("revoke an API token")?;
         let encoded_id = urlencoding::encode(id);
         let url = self.url("token", &format!("/auth/tokens/{encoded_id}"));
         let headers = self.require_auth_headers()?;
@@ -392,6 +406,7 @@ impl ApiClient {
         limit: u32,
         offset: u32,
     ) -> Result<SearchResponse, AppError> {
+        ensure_online("search the registry")?;
         let encoded_q = urlencoding::encode(query);
         let url = self.url(
             "search",
@@ -411,6 +426,7 @@ impl ApiClient {
         name: &str,
         message: Option<&str>,
     ) -> Result<PackageMetadata, AppError> {
+        ensure_online("deprecate a package")?;
         let encoded_name = encode_package_name(name);
         let url = self.url("package", &format!("/packages/{encoded_name}"));
         let headers = self.require_auth_headers()?;
@@ -443,6 +459,7 @@ impl ApiClient {
         version: &str,
         message: Option<&str>,
     ) -> Result<VersionMetadata, AppError> {
+        ensure_online("deprecate a package version")?;
         let encoded_name = encode_package_name(name);
         let encoded_version = urlencoding::encode(version);
         let url = self.url(
@@ -479,6 +496,7 @@ impl ApiClient {
         tag: &str,
         version: &str,
     ) -> Result<DistTagResult, AppError> {
+        ensure_online("set a dist-tag")?;
         let encoded_name = encode_package_name(name);
         let encoded_tag = urlencoding::encode(tag);
         let url = self.url(
@@ -508,6 +526,7 @@ impl ApiClient {
     pub async fn get_registry_signing_keys(
         &self,
     ) -> Result<RegistrySigningKeyCollection, AppError> {
+        ensure_online("fetch registry signing keys")?;
         let url = self.url("registry", "/registry/signing-keys");
         let resp = self.client.get(&url).send().await?;
 
@@ -523,6 +542,7 @@ impl ApiClient {
         name: &str,
         version: &str,
     ) -> Result<Option<ProvenanceAttestation>, AppError> {
+        ensure_online("fetch provenance attestation")?;
         let encoded_name = encode_package_name(name);
         let encoded_version = urlencoding::encode(version);
         let url = self.url(
@@ -543,6 +563,7 @@ impl ApiClient {
     }
 
     pub async fn remove_dist_tag(&self, name: &str, tag: &str) -> Result<(), AppError> {
+        ensure_online("remove a dist-tag")?;
         let encoded_name = encode_package_name(name);
         let encoded_tag = urlencoding::encode(tag);
         let url = self.url(
@@ -588,6 +609,18 @@ async fn parse_json_response<T: serde::de::DeserializeOwned>(
 
 fn encode_package_name(name: &str) -> String {
     urlencoding::encode(name).to_string()
+}
+
+/// Guard at the HTTP boundary. Offline mode short-circuits with a descriptive
+/// error instead of letting a request go to the network.
+fn ensure_online(operation: &str) -> Result<(), AppError> {
+    if crate::util::offline::is_offline() {
+        Err(AppError::OfflineModeBlocked {
+            operation: operation.to_string(),
+        })
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -807,6 +840,67 @@ mod tests {
         let client = make_test_client(&server).await;
         let meta = client.get_package("@scope/pkg").await.unwrap();
         assert_eq!(meta.name, "@scope/pkg");
+    }
+
+    #[tokio::test]
+    async fn test_offline_mode_blocks_download_tarball() {
+        let _lock = env_lock();
+        std::env::set_var("APKG_OFFLINE", "1");
+        let server = MockServer::start().await;
+        // No mock mounted — if the guard misses, the test would hang on the
+        // request. A prompt `OfflineModeBlocked` proves the short-circuit.
+        let client = make_test_client(&server).await;
+        let err = client.download_tarball("foo", "1.0.0").await.unwrap_err();
+        std::env::remove_var("APKG_OFFLINE");
+        assert!(matches!(err, AppError::OfflineModeBlocked { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_offline_mode_serves_fresh_metadata_cache() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("APKG_CACHE_DIR", tmp.path());
+        std::env::remove_var("APKG_NO_METADATA_CACHE");
+        std::env::remove_var("APKG_OFFLINE");
+
+        let server = MockServer::start().await;
+        // Populate metadata cache online (exactly 1 hit allowed).
+        Mock::given(method("GET"))
+            .and(path("/packages/cached"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "cached",
+                "versions": {},
+                "maintainers": [],
+                "distTags": {}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = make_test_client(&server).await;
+        client.get_package("cached").await.unwrap();
+
+        // Flip offline; the cached entry must still resolve.
+        std::env::set_var("APKG_OFFLINE", "1");
+        let meta = client.get_package("cached").await.unwrap();
+        assert_eq!(meta.name, "cached");
+
+        std::env::remove_var("APKG_OFFLINE");
+        std::env::remove_var("APKG_CACHE_DIR");
+    }
+
+    #[tokio::test]
+    async fn test_offline_mode_blocks_uncached_get_package() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("APKG_CACHE_DIR", tmp.path());
+        std::env::set_var("APKG_OFFLINE", "1");
+        let server = MockServer::start().await;
+        let client = make_test_client(&server).await;
+        let err = client.get_package("uncached").await.unwrap_err();
+        std::env::remove_var("APKG_OFFLINE");
+        std::env::remove_var("APKG_CACHE_DIR");
+        assert!(matches!(err, AppError::OfflineModeBlocked { .. }));
     }
 
     #[tokio::test]

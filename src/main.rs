@@ -50,6 +50,11 @@ struct Cli {
     #[arg(long, global = true)]
     registry: Option<String>,
 
+    /// Run without any network access. Commands that need the registry
+    /// fail fast; cached data is still served.
+    #[arg(long, global = true)]
+    offline: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -465,6 +470,7 @@ fn main() -> ExitCode {
 
 #[allow(clippy::too_many_lines)]
 async fn run(cli: Cli) -> Result<(), AppError> {
+    util::offline::set_from_cli(cli.offline);
     let registry = cli.registry.as_deref();
 
     match cli.command {

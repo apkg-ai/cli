@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::path::Path;
 
+use futures_util::stream::{self, StreamExt, TryStreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::api::client::ApiClient;
@@ -282,6 +283,16 @@ pub(crate) fn validated_dir_name(name: &str) -> Result<&str, AppError> {
     crate::util::package::validate_package_name(name)
 }
 
+/// Parsed from `APKG_MAX_CONCURRENT_DOWNLOADS`; default 4. Zero is normalized
+/// to 1 to avoid a stalled stream.
+fn max_concurrent_downloads() -> usize {
+    std::env::var("APKG_MAX_CONCURRENT_DOWNLOADS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .map(|n| n.max(1))
+        .unwrap_or(4)
+}
+
 pub(crate) fn make_spinner() -> ProgressBar {
     let pb = ProgressBar::new_spinner();
     pb.set_style(
@@ -327,10 +338,18 @@ pub(crate) async fn download_resolved(
     cwd: &Path,
     pb: &ProgressBar,
 ) -> Result<(), AppError> {
-    for (name, pkg) in &result.packages {
-        let install_dir = cwd.join("apkg_packages").join(validated_dir_name(name)?);
-        download_or_cache(client, name, &pkg.version, &pkg.integrity, &install_dir, pb).await?;
-    }
+    let concurrency = max_concurrent_downloads();
+    let items: Vec<(&String, &resolver::ResolvedPackage)> = result.packages.iter().collect();
+
+    stream::iter(items)
+        .map(|(name, pkg)| async move {
+            let install_dir = cwd.join("apkg_packages").join(validated_dir_name(name)?);
+            download_or_cache(client, name, &pkg.version, &pkg.integrity, &install_dir, pb).await
+        })
+        .buffer_unordered(concurrency)
+        .try_collect::<Vec<()>>()
+        .await?;
+
     Ok(())
 }
 
@@ -344,12 +363,21 @@ pub(crate) async fn download_resolved_subset(
     cwd: &Path,
     pb: &ProgressBar,
 ) -> Result<(), AppError> {
-    for name in names {
-        if let Some(pkg) = result.packages.get(*name) {
+    let concurrency = max_concurrent_downloads();
+    let items: Vec<(&str, &resolver::ResolvedPackage)> = names
+        .iter()
+        .filter_map(|n| result.packages.get(*n).map(|p| (*n, p)))
+        .collect();
+
+    stream::iter(items)
+        .map(|(name, pkg)| async move {
             let install_dir = cwd.join("apkg_packages").join(validated_dir_name(name)?);
-            download_or_cache(client, name, &pkg.version, &pkg.integrity, &install_dir, pb).await?;
-        }
-    }
+            download_or_cache(client, name, &pkg.version, &pkg.integrity, &install_dir, pb).await
+        })
+        .buffer_unordered(concurrency)
+        .try_collect::<Vec<()>>()
+        .await?;
+
     Ok(())
 }
 
@@ -755,6 +783,82 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.to_lowercase().contains("integrity"));
+    }
+
+    #[test]
+    fn test_max_concurrent_downloads_env_override() {
+        let _lock = env_lock();
+        std::env::set_var("APKG_MAX_CONCURRENT_DOWNLOADS", "8");
+        assert_eq!(max_concurrent_downloads(), 8);
+        std::env::set_var("APKG_MAX_CONCURRENT_DOWNLOADS", "0");
+        assert_eq!(max_concurrent_downloads(), 1);
+        std::env::remove_var("APKG_MAX_CONCURRENT_DOWNLOADS");
+        assert_eq!(max_concurrent_downloads(), 4);
+    }
+
+    /// Prove the install loop runs downloads concurrently: 4 mock endpoints
+    /// each delay 200ms. Serial would take ≥800ms; concurrent should be close
+    /// to a single RTT. We allow generous slack for CI variance.
+    #[tokio::test]
+    async fn test_download_resolved_is_concurrent() {
+        use std::time::Duration;
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        std::env::remove_var("APKG_MAX_CONCURRENT_DOWNLOADS");
+
+        let server = MockServer::start().await;
+        let tarball = make_test_tarball();
+        let expected_integrity = crate::util::integrity::sha256_integrity(&tarball);
+
+        for i in 0..4 {
+            Mock::given(method("GET"))
+                .and(wiremock::matchers::path(format!(
+                    "/packages/pkg{i}/1.0.0/tarball"
+                )))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_delay(Duration::from_millis(200))
+                        .set_body_bytes(tarball.clone()),
+                )
+                .mount(&server)
+                .await;
+        }
+
+        let cwd = tmp.path().join("cwd");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let _guard = CwdGuard;
+        std::env::set_current_dir(&cwd).unwrap();
+
+        let mut packages = BTreeMap::new();
+        for i in 0..4 {
+            packages.insert(
+                format!("pkg{i}"),
+                ResolvedPackage {
+                    version: "1.0.0".into(),
+                    tarball_url: format!("{}/packages/pkg{i}/1.0.0/tarball", server.uri()),
+                    integrity: expected_integrity.clone(),
+                    package_type: "skill".into(),
+                    dependencies: BTreeMap::new(),
+                    peer_dependencies: BTreeMap::new(),
+                },
+            );
+        }
+        let result = ResolutionResult { packages };
+
+        let client = ApiClient::new(Some(&server.uri())).unwrap();
+        let pb = make_spinner();
+        let start = std::time::Instant::now();
+        download_resolved(&client, &result, &cwd, &pb)
+            .await
+            .unwrap();
+        let elapsed = start.elapsed();
+        pb.finish_and_clear();
+
+        assert!(
+            elapsed < Duration::from_millis(600),
+            "expected concurrent downloads (<600ms), got {elapsed:?}"
+        );
     }
 
     #[tokio::test]

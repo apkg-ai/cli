@@ -105,12 +105,23 @@ Run `apkg --help` or `apkg <command> --help` for full flag details.
 
 `apkg` reads configuration from several sources (in decreasing precedence):
 
-1. Per-command flag: `--registry <url>`
-2. Environment variables: `APKG_REGISTRY`, `APKG_TOKEN`, `APKG_CACHE_DIR`
+1. Per-command flag: `--registry <url>`, `--offline`
+2. Environment variables: `APKG_REGISTRY`, `APKG_TOKEN`, `APKG_CACHE_DIR`, `APKG_OFFLINE`, `APKG_NO_METADATA_CACHE`, `APKG_METADATA_TTL_SECS`, `APKG_MAX_CONCURRENT_DOWNLOADS`, `APKG_NO_PROXY`
 3. `~/.apkg/settings.json` (managed via `apkg config`)
 4. Compiled-in defaults
 
 Credentials are stored in `~/.apkg/credentials.json` after `apkg login`.
+
+### HTTP proxy
+
+`apkg` honors the standard `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`
+environment variables via reqwest's built-in system proxy detection — no
+CLI flag or config required. Proxy credentials use the conventional
+`http://user:pass@host:port` form.
+
+Set `APKG_NO_PROXY=1` to opt out of proxy detection entirely. Useful in
+CI or sandboxed environments where an inherited proxy setting shouldn't
+apply to apkg's own traffic.
 
 ## Supported AI tools
 

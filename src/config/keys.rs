@@ -84,11 +84,7 @@ pub fn save(key: &StoredKey) -> Result<(), AppError> {
     let content = serde_json::to_string_pretty(key)?;
     fs::write(&path, content)?;
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
-    }
+    crate::util::secret_perms::restrict_to_owner(&path)?;
 
     Ok(())
 }
@@ -315,5 +311,31 @@ mod tests {
     #[test]
     fn test_key_filename_special_chars() {
         assert_eq!(key_filename("SHA256:a+b/c:d"), "SHA256_a_b_c_d");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_save_sets_unix_permissions_to_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let _lock = crate::test_utils::env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let key = StoredKey {
+            key_id: "SHA256:perm-test".into(),
+            name: "perm".into(),
+            public_key: "pub".into(),
+            private_key: "secret".to_string().into(),
+            created_at: "2026-05-05T00:00:00Z".into(),
+        };
+        save(&key).unwrap();
+
+        let path = tmp
+            .path()
+            .join(".apkg")
+            .join("keys")
+            .join(format!("{}.json", key_filename(&key.key_id)));
+        let mode = path.metadata().unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "key file must be user-only readable");
     }
 }

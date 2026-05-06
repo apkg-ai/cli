@@ -842,6 +842,34 @@ fn test_verify_help() {
 }
 
 #[test]
+fn test_install_offline_without_lockfile_fails_fast() {
+    // With --offline and no lockfile, install must return an OfflineModeBlocked
+    // error before attempting any network work.
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(
+        tmp.path().join("apkg.json"),
+        r#"{
+  "name": "@test/project",
+  "version": "1.0.0",
+  "type": "project",
+  "description": "",
+  "license": "MIT",
+  "platform": ["claude"],
+  "dependencies": { "@acme/foo": "^1.0.0" }
+}"#,
+    )
+    .unwrap();
+
+    cmd()
+        .arg("--offline")
+        .arg("install")
+        .current_dir(tmp.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Offline mode"));
+}
+
+#[test]
 fn test_verify_no_lockfile() {
     let tmp = TempDir::new().unwrap();
     cmd()

@@ -27,9 +27,17 @@ impl ApiClient {
             .map(|c| c.access_token)
             .or_else(|| std::env::var("APKG_TOKEN").ok());
 
-        let client = reqwest::Client::builder()
-            .user_agent(format!("apkg-cli/{}", env!("CARGO_PKG_VERSION")))
-            .build()?;
+        let mut builder = reqwest::Client::builder()
+            .user_agent(format!("apkg-cli/{}", env!("CARGO_PKG_VERSION")));
+
+        // By default reqwest reads `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`.
+        // `APKG_NO_PROXY=1` opts out for CI / sandboxed runs where inherited
+        // proxy settings shouldn't apply to apkg's own traffic.
+        if is_truthy_env("APKG_NO_PROXY") {
+            builder = builder.no_proxy();
+        }
+
+        let client = builder.build()?;
 
         Ok(Self {
             client,
@@ -611,6 +619,14 @@ fn encode_package_name(name: &str) -> String {
     urlencoding::encode(name).to_string()
 }
 
+/// Small shared env-var check used for `APKG_NO_PROXY` and future flags that
+/// follow the same truthy / falsy convention as other `APKG_*` overrides.
+fn is_truthy_env(key: &str) -> bool {
+    std::env::var(key)
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
 /// Guard at the HTTP boundary. Offline mode short-circuits with a descriptive
 /// error instead of letting a request go to the network.
 fn ensure_online(operation: &str) -> Result<(), AppError> {
@@ -840,6 +856,98 @@ mod tests {
         let client = make_test_client(&server).await;
         let meta = client.get_package("@scope/pkg").await.unwrap();
         assert_eq!(meta.name, "@scope/pkg");
+    }
+
+    #[test]
+    fn test_is_truthy_env() {
+        let _lock = env_lock();
+        std::env::set_var("APKG_TEST_TRUTHY", "1");
+        assert!(is_truthy_env("APKG_TEST_TRUTHY"));
+        std::env::set_var("APKG_TEST_TRUTHY", "True");
+        assert!(is_truthy_env("APKG_TEST_TRUTHY"));
+        std::env::set_var("APKG_TEST_TRUTHY", "TRUE");
+        assert!(is_truthy_env("APKG_TEST_TRUTHY"));
+        std::env::set_var("APKG_TEST_TRUTHY", "0");
+        assert!(!is_truthy_env("APKG_TEST_TRUTHY"));
+        std::env::remove_var("APKG_TEST_TRUTHY");
+        assert!(!is_truthy_env("APKG_TEST_TRUTHY"));
+    }
+
+    /// Proof that `HTTP_PROXY` is auto-honored by reqwest. A second
+    /// `MockServer` stands in as the proxy; a successful `.expect(1)` on it
+    /// means the request reached the proxy rather than the declared origin.
+    #[tokio::test]
+    async fn test_http_proxy_env_routes_through_proxy() {
+        let _lock = env_lock();
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/proxy-target"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "proxy-target",
+                "versions": {},
+                "maintainers": [],
+                "distTags": {}
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("HOME", tmp.path());
+        std::env::set_var("APKG_TOKEN", "t");
+        std::env::set_var("APKG_NO_METADATA_CACHE", "1");
+        std::env::remove_var("APKG_NO_PROXY");
+        std::env::set_var("HTTP_PROXY", proxy.uri());
+
+        // Point the client at an unreachable origin; with a proxy set, the
+        // request MUST route through the proxy for the mock to see it.
+        let client = ApiClient::new(Some("http://unused.invalid")).unwrap();
+        let meta = client.get_package("proxy-target").await.unwrap();
+
+        std::env::remove_var("HTTP_PROXY");
+        std::env::remove_var("APKG_NO_METADATA_CACHE");
+
+        assert_eq!(meta.name, "proxy-target");
+        // `.expect(1)` on the mock proxy is asserted implicitly on drop.
+    }
+
+    /// `APKG_NO_PROXY=1` must bypass the proxy entirely, even with
+    /// `HTTP_PROXY` set to an unreachable address.
+    #[tokio::test]
+    async fn test_apkg_no_proxy_disables_proxy() {
+        let _lock = env_lock();
+
+        let origin = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/direct"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "direct",
+                "versions": {},
+                "maintainers": [],
+                "distTags": {}
+            })))
+            .expect(1)
+            .mount(&origin)
+            .await;
+
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("HOME", tmp.path());
+        std::env::set_var("APKG_TOKEN", "t");
+        std::env::set_var("APKG_NO_METADATA_CACHE", "1");
+        std::env::set_var("APKG_NO_PROXY", "1");
+        // Unbindable-on-most-systems address — if APKG_NO_PROXY were ignored
+        // the request would fail rather than reach the origin mock.
+        std::env::set_var("HTTP_PROXY", "http://127.0.0.1:1");
+
+        let client = ApiClient::new(Some(&origin.uri())).unwrap();
+        let meta = client.get_package("direct").await.unwrap();
+
+        std::env::remove_var("HTTP_PROXY");
+        std::env::remove_var("APKG_NO_PROXY");
+        std::env::remove_var("APKG_NO_METADATA_CACHE");
+
+        assert_eq!(meta.name, "direct");
     }
 
     #[tokio::test]

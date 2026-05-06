@@ -104,6 +104,7 @@ dependencies = [
  "dialoguer",
  "dirs",
  "ed25519-dalek",
+ "futures-util",
  "glob-match",
  "indicatif",
  "miette",

@@ -38,11 +38,7 @@ pub fn save(creds: &Credentials) -> Result<(), AppError> {
     let content = serde_json::to_string_pretty(creds)?;
     fs::write(&path, content)?;
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
-    }
+    crate::util::secret_perms::restrict_to_owner(&path)?;
 
     Ok(())
 }

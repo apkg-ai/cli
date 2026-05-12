@@ -98,7 +98,9 @@ pub struct VersionMetadata {
     #[serde(default)]
     pub keywords: Option<Vec<String>>,
     #[serde(default)]
-    pub platform: Option<Vec<String>>,
+    pub origin: Option<String>,
+    #[serde(default)]
+    pub targets: Option<Vec<String>>,
     #[serde(default)]
     pub deprecated: Option<String>,
 }
@@ -159,7 +161,9 @@ pub struct SearchResult {
     #[serde(default)]
     pub package_type: Option<String>,
     #[serde(default)]
-    pub platform: Option<Vec<String>>,
+    pub origin: Option<String>,
+    #[serde(default)]
+    pub targets: Option<Vec<String>>,
     #[serde(default)]
     pub publisher: Option<SearchPublisher>,
 }

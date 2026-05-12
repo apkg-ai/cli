@@ -656,7 +656,8 @@ mod tests {
             "type": "project",
             "description": "Test project",
             "license": "MIT",
-            "platform": ["claude"],
+            "origin": "claude-code",
+            "targets": ["claude-code"],
             "dependencies": dep_map,
         });
         std::fs::write(

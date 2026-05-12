@@ -15,12 +15,13 @@ pub async fn run(opts: InfoOptions<'_>) -> Result<(), AppError> {
     let client = ApiClient::new(opts.registry)?;
     let metadata = client.get_package(opts.package).await?;
 
-    // Resolve the latest version's platform info for display
-    let latest_platform = metadata
+    // Resolve the latest version's origin + targets info for display
+    let latest_vm = metadata
         .dist_tags
         .get("latest")
-        .and_then(|v| metadata.versions.get(v))
-        .and_then(|vm| vm.platform.clone());
+        .and_then(|v| metadata.versions.get(v));
+    let latest_origin = latest_vm.and_then(|vm| vm.origin.clone());
+    let latest_targets = latest_vm.and_then(|vm| vm.targets.clone());
 
     if opts.json {
         let json_val = serde_json::to_string_pretty(&serde_json::json!({
@@ -29,7 +30,8 @@ pub async fn run(opts: InfoOptions<'_>) -> Result<(), AppError> {
             "distTags": metadata.dist_tags,
             "versions": metadata.versions.keys().collect::<Vec<_>>(),
             "maintainers": metadata.maintainers.iter().map(|m| &m.username).collect::<Vec<_>>(),
-            "platform": latest_platform,
+            "origin": latest_origin,
+            "targets": latest_targets,
             "createdAt": metadata.created_at,
             "updatedAt": metadata.updated_at,
         }))?;
@@ -70,11 +72,20 @@ pub async fn run(opts: InfoOptions<'_>) -> Result<(), AppError> {
         println!();
     }
 
-    // Platform
-    if let Some(ref platforms) = latest_platform {
-        if !platforms.is_empty() {
-            println!("{}", header_style.apply_to("Platform:"));
-            println!("  {}", platforms.join(", "));
+    // Origin
+    if let Some(ref origin) = latest_origin {
+        if !origin.is_empty() {
+            println!("{}", header_style.apply_to("Origin:"));
+            println!("  {origin}");
+            println!();
+        }
+    }
+
+    // Targets
+    if let Some(ref targets) = latest_targets {
+        if !targets.is_empty() {
+            println!("{}", header_style.apply_to("Targets:"));
+            println!("  {}", targets.join(", "));
             println!();
         }
     }
@@ -178,7 +189,8 @@ mod tests {
                     "1.0.0": {
                         "version": "1.0.0",
                         "type": "skill",
-                        "platform": ["claude"]
+                        "origin": "claude-code",
+                        "targets": ["claude-code"]
                     }
                 },
                 "maintainers": [{ "username": "alice" }],
@@ -271,7 +283,8 @@ mod tests {
                 "distTags": {},
                 "versions": {},
                 "maintainers": [],
-                "platform": ["claude", "cursor"]
+                "origin": "claude-code",
+                "targets": ["claude-code", "cursor"]
             })))
             .mount(&server)
             .await;

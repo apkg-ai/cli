@@ -422,7 +422,8 @@ mod tests {
             package_type: PackageType::Skill,
             description: "AI-powered code review".to_string(),
             main: Some("src/index.ts".to_string()),
-            platform: Vec::new(),
+            origin: "codex".to_string(),
+            targets: vec!["codex".to_string()],
             skill: Some(SkillInfo {
                 capabilities: vec!["code-review".to_string(), "bug-detection".to_string()],
                 model_compatibility: None,
@@ -439,7 +440,8 @@ mod tests {
             package_type: PackageType::Agent,
             description: "Autonomous research agent".to_string(),
             main: Some("src/agent.ts".to_string()),
-            platform: Vec::new(),
+            origin: "codex".to_string(),
+            targets: vec!["codex".to_string()],
             skill: None,
             agent: Some(AgentInfo {
                 tools: vec![
@@ -689,7 +691,8 @@ mod tests {
             package_type: PackageType::Command,
             description: "Generate a changelog from git history".to_string(),
             main: None,
-            platform: Vec::new(),
+            origin: "codex".to_string(),
+            targets: vec!["codex".to_string()],
             skill: None,
             agent: None,
         }
@@ -768,7 +771,8 @@ mod tests {
             package_type: PackageType::Rule,
             description: "Disallow TODO comments in code".to_string(),
             main: None,
-            platform: Vec::new(),
+            origin: "codex".to_string(),
+            targets: vec!["codex".to_string()],
             skill: None,
             agent: None,
         }

@@ -542,7 +542,8 @@ mod tests {
             "type": "project",
             "description": "Test project",
             "license": "MIT",
-            "platform": ["claude"],
+            "origin": "claude-code",
+            "targets": ["claude-code"],
             "dependencies": dep_map,
         });
         std::fs::write(
@@ -601,7 +602,7 @@ mod tests {
         let buf = Vec::new();
         let enc = zstd::Encoder::new(buf, 3).unwrap();
         let mut archive = tar::Builder::new(enc);
-        let content = br#"{"name":"dummy","version":"1.0.0","type":"skill","description":"","license":"MIT","platform":["claude"]}"#;
+        let content = br#"{"name":"dummy","version":"1.0.0","type":"skill","description":"","license":"MIT","origin":"claude-code","targets":["claude-code"]}"#;
         let mut header = tar::Header::new_gnu();
         header.set_size(content.len() as u64);
         header.set_mode(0o644);

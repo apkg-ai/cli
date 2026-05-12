@@ -97,7 +97,8 @@ pub struct Manifest {
     pub repository: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
-    pub platform: Vec<String>,
+    pub origin: String,
+    pub targets: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependencies: Option<BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -124,21 +125,53 @@ pub struct HookPermissions {
 
 pub const MANIFEST_FILE: &str = "apkg.json";
 
-/// Known platform identifiers for AI coding tools.
-pub const KNOWN_PLATFORMS: &[&str] = &["claude-code", "cursor", "codex"];
+/// Known AI coding tool identifiers. Keep in sync with the server's
+/// `KNOWN_TOOLS` in `api/api-package/src/validation/schemas.ts`.
+pub const KNOWN_TOOLS: &[&str] = &["claude-code", "cursor", "codex"];
 
-/// Returns warning strings for any platform values not in the known set.
-pub fn validate_platforms(values: &[String]) -> Vec<String> {
-    values
+/// Returns an error message if any entry in `targets` is not a known tool,
+/// or if `targets` is empty. Returns `None` on success.
+pub fn validate_targets_known(targets: &[String]) -> Option<String> {
+    if targets.is_empty() {
+        return Some(format!(
+            "`targets` must not be empty. Known tools: {}",
+            KNOWN_TOOLS.join(", ")
+        ));
+    }
+    let unknown: Vec<&String> = targets
         .iter()
-        .filter(|v| !KNOWN_PLATFORMS.contains(&v.as_str()))
-        .map(|v| {
-            format!(
-                "Unknown platform \"{v}\". Known platforms: {}",
-                KNOWN_PLATFORMS.join(", ")
-            )
-        })
-        .collect()
+        .filter(|v| !KNOWN_TOOLS.contains(&v.as_str()))
+        .collect();
+    if unknown.is_empty() {
+        None
+    } else {
+        let list = unknown
+            .iter()
+            .map(|s| format!("\"{s}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        Some(format!(
+            "Unknown tool(s) in `targets`: {list}. Known tools: {}",
+            KNOWN_TOOLS.join(", ")
+        ))
+    }
+}
+
+/// Returns an error message if `origin` is not a known tool, or is not
+/// a member of `targets`. Returns `None` on success.
+pub fn validate_origin(origin: &str, targets: &[String]) -> Option<String> {
+    if !KNOWN_TOOLS.contains(&origin) {
+        return Some(format!(
+            "Unknown `origin` \"{origin}\". Known tools: {}",
+            KNOWN_TOOLS.join(", ")
+        ));
+    }
+    if !targets.iter().any(|t| t == origin) {
+        return Some(format!(
+            "`origin` \"{origin}\" must be included in `targets`"
+        ));
+    }
+    None
 }
 
 pub fn load(dir: &Path) -> Result<Manifest, AppError> {
@@ -172,7 +205,8 @@ mod tests {
             "type": "skill",
             "description": "A skill",
             "license": "MIT",
-            "platform": ["claude-code"]
+            "origin": "claude-code",
+            "targets": ["claude-code"]
         }"#;
         let m: Manifest = serde_json::from_str(json).unwrap();
         assert_eq!(m.name, "my-skill");
@@ -180,7 +214,8 @@ mod tests {
         assert!(matches!(m.package_type, PackageType::Skill));
         assert_eq!(m.description, "A skill");
         assert_eq!(m.license, "MIT");
-        assert_eq!(m.platform, vec!["claude-code"]);
+        assert_eq!(m.origin, "claude-code");
+        assert_eq!(m.targets, vec!["claude-code"]);
         assert!(m.keywords.is_none());
         assert!(m.dependencies.is_none());
     }
@@ -198,7 +233,8 @@ mod tests {
             "authors": [{"name": "acme"}],
             "repository": "https://github.com/acme/summarizer",
             "homepage": "https://acme.dev",
-            "platform": ["claude-code", "cursor"],
+            "origin": "claude-code",
+            "targets": ["claude-code", "cursor"],
             "dependencies": {
                 "some-dep": "^1.0.0"
             }
@@ -206,7 +242,8 @@ mod tests {
         let m: Manifest = serde_json::from_str(json).unwrap();
         assert_eq!(m.name, "@acme/summarizer");
         assert!(matches!(m.package_type, PackageType::Command));
-        assert_eq!(m.platform, vec!["claude-code", "cursor"]);
+        assert_eq!(m.origin, "claude-code");
+        assert_eq!(m.targets, vec!["claude-code", "cursor"]);
         assert_eq!(m.keywords.unwrap(), vec!["ai", "command"]);
         assert_eq!(m.dependencies.unwrap().len(), 1);
     }
@@ -219,7 +256,8 @@ mod tests {
             "type": "skill",
             "description": "A skill",
             "license": "MIT",
-            "platform": ["claude-code"],
+            "origin": "claude-code",
+            "targets": ["claude-code"],
             "unknownField": true
         }"#;
         let result: Result<Manifest, _> = serde_json::from_str(json);
@@ -230,7 +268,7 @@ mod tests {
     fn test_all_package_types() {
         for type_str in PackageType::VARIANTS {
             let json = format!(
-                r#"{{"name":"t","version":"0.1.0","type":"{type_str}","description":"d","license":"MIT","platform":["claude-code"]}}"#
+                r#"{{"name":"t","version":"0.1.0","type":"{type_str}","description":"d","license":"MIT","origin":"claude-code","targets":["claude-code"]}}"#
             );
             let m: Manifest = serde_json::from_str(&json).unwrap();
             assert_eq!(m.package_type.to_string(), *type_str);
@@ -251,7 +289,8 @@ mod tests {
             authors: None,
             repository: None,
             homepage: None,
-            platform: vec!["claude-code".to_string()],
+            origin: "claude-code".to_string(),
+            targets: vec!["claude-code".to_string()],
             dependencies: None,
             dev_dependencies: None,
             peer_dependencies: None,
@@ -263,6 +302,8 @@ mod tests {
         assert_eq!(loaded.name, "test-pkg");
         assert!(matches!(loaded.package_type, PackageType::Agent));
         assert_eq!(loaded.keywords.unwrap(), vec!["ai"]);
+        assert_eq!(loaded.origin, "claude-code");
+        assert_eq!(loaded.targets, vec!["claude-code"]);
     }
 
     #[test]
@@ -273,84 +314,85 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_manifest_with_platform() {
+    fn test_parse_manifest_with_multiple_targets() {
         let json = r#"{
             "name": "@user/my-skill",
             "version": "1.0.0",
             "type": "skill",
             "description": "A skill",
             "license": "MIT",
-            "platform": ["claude-code"]
+            "origin": "claude-code",
+            "targets": ["claude-code", "cursor", "codex"]
         }"#;
         let m: Manifest = serde_json::from_str(json).unwrap();
-        assert_eq!(m.platform, vec!["claude-code"]);
+        assert_eq!(m.origin, "claude-code");
+        assert_eq!(m.targets, vec!["claude-code", "cursor", "codex"]);
     }
 
     #[test]
-    fn test_parse_manifest_with_multiple_platforms() {
+    fn test_reject_missing_origin() {
         let json = r#"{
             "name": "@user/my-skill",
             "version": "1.0.0",
             "type": "skill",
             "description": "A skill",
             "license": "MIT",
-            "platform": ["claude-code", "cursor", "codex"]
-        }"#;
-        let m: Manifest = serde_json::from_str(json).unwrap();
-        assert_eq!(m.platform, vec!["claude-code", "cursor", "codex"]);
-    }
-
-    #[test]
-    fn test_reject_missing_platform() {
-        let json = r#"{
-            "name": "@user/my-skill",
-            "version": "1.0.0",
-            "type": "skill",
-            "description": "A skill",
-            "license": "MIT"
+            "targets": ["claude-code"]
         }"#;
         let result: Result<Manifest, _> = serde_json::from_str(json);
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_validate_platforms_known() {
+    fn test_reject_missing_targets() {
+        let json = r#"{
+            "name": "@user/my-skill",
+            "version": "1.0.0",
+            "type": "skill",
+            "description": "A skill",
+            "license": "MIT",
+            "origin": "claude-code"
+        }"#;
+        let result: Result<Manifest, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_targets_known_ok() {
         let values = vec!["claude-code".to_string(), "cursor".to_string()];
-        let warnings = validate_platforms(&values);
-        assert!(warnings.is_empty());
+        assert!(validate_targets_known(&values).is_none());
     }
 
     #[test]
-    fn test_validate_platforms_unknown() {
+    fn test_validate_targets_known_unknown() {
         let values = vec!["claude-code".to_string(), "some-future-tool".to_string()];
-        let warnings = validate_platforms(&values);
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("some-future-tool"));
+        let err = validate_targets_known(&values).expect("should error");
+        assert!(err.contains("some-future-tool"));
     }
 
     #[test]
-    fn test_roundtrip_with_platform() {
-        let tmp = tempfile::tempdir().unwrap();
-        let m = Manifest {
-            name: "test-pkg".to_string(),
-            version: "0.1.0".to_string(),
-            package_type: PackageType::Skill,
-            description: "test".to_string(),
-            license: "MIT".to_string(),
-            readme: None,
-            keywords: None,
-            authors: None,
-            repository: None,
-            homepage: None,
-            platform: vec!["claude-code".to_string(), "codex".to_string()],
-            dependencies: None,
-            dev_dependencies: None,
-            peer_dependencies: None,
-            scripts: None,
-            hook_permissions: None,
-        };
-        save(tmp.path(), &m).unwrap();
-        let loaded = load(tmp.path()).unwrap();
-        assert_eq!(loaded.platform, vec!["claude-code", "codex"]);
+    fn test_validate_targets_known_empty() {
+        let err = validate_targets_known(&[]).expect("should error");
+        assert!(err.contains("must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_origin_ok() {
+        let targets = vec!["claude-code".to_string(), "cursor".to_string()];
+        assert!(validate_origin("claude-code", &targets).is_none());
+    }
+
+    #[test]
+    fn test_validate_origin_unknown() {
+        let targets = vec!["gemini".to_string()];
+        let err = validate_origin("gemini", &targets).expect("should error");
+        assert!(err.contains("Unknown `origin`"));
+    }
+
+    #[test]
+    fn test_validate_origin_not_in_targets() {
+        let targets = vec!["cursor".to_string()];
+        let err = validate_origin("claude-code", &targets).expect("should error");
+        assert!(err.contains("must be included in `targets`"));
     }
 }

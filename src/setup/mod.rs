@@ -29,7 +29,10 @@ pub struct PackageInfo {
     // Deserialized but not currently used in setup logic — kept for forward compatibility.
     #[serde(default)]
     #[allow(dead_code)]
-    pub platform: Vec<String>,
+    pub origin: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub targets: Vec<String>,
     #[serde(default)]
     pub skill: Option<SkillInfo>,
     #[serde(default)]

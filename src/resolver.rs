@@ -17,7 +17,6 @@ pub struct ResolvedPackage {
     pub integrity: String,
     pub package_type: String,
     pub dependencies: BTreeMap<String, String>,
-    pub peer_dependencies: BTreeMap<String, String>,
 }
 
 pub struct ResolutionResult {
@@ -97,7 +96,6 @@ pub async fn resolve(
                             integrity: locked.integrity.clone(),
                             package_type: locked.package_type.clone(),
                             dependencies: deps.clone(),
-                            peer_dependencies: locked.peer_dependencies.clone(),
                         };
                         for (dep_name, dep_version) in &deps {
                             queue.push_back((dep_name.clone(), dep_version.clone()));
@@ -152,7 +150,6 @@ pub async fn resolve(
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string()),
             dependencies: deps.clone(),
-            peer_dependencies: BTreeMap::new(),
         };
 
         // Push transitive deps
@@ -538,7 +535,6 @@ mod tests {
                 integrity: "sha256-locked".to_string(),
                 package_type: "skill".to_string(),
                 dependencies: BTreeMap::new(),
-                peer_dependencies: BTreeMap::new(),
                 optional: false,
             },
         );
@@ -587,7 +583,6 @@ mod tests {
                     d.insert("pkg-b".to_string(), "^1.0.0".to_string());
                     d
                 },
-                peer_dependencies: BTreeMap::new(),
                 optional: false,
             },
         );
@@ -603,7 +598,6 @@ mod tests {
                     d.insert("pkg-a".to_string(), "^2.0.0".to_string());
                     d
                 },
-                peer_dependencies: BTreeMap::new(),
                 optional: false,
             },
         );
@@ -644,7 +638,6 @@ mod tests {
                     d.insert("pkg-b".to_string(), "^1.0.0".to_string());
                     d
                 },
-                peer_dependencies: BTreeMap::new(),
                 optional: false,
             },
         );
@@ -656,7 +649,6 @@ mod tests {
                 integrity: "sha256-b".to_string(),
                 package_type: "skill".to_string(),
                 dependencies: BTreeMap::new(),
-                peer_dependencies: BTreeMap::new(),
                 optional: false,
             },
         );
@@ -725,7 +717,6 @@ mod tests {
                     d.insert("pkg-b".to_string(), "^1.0.0".to_string());
                     d
                 },
-                peer_dependencies: BTreeMap::new(),
                 optional: false,
             },
         );
@@ -742,7 +733,6 @@ mod tests {
                     d.insert("pkg-a".to_string(), "^1.0.0".to_string());
                     d
                 },
-                peer_dependencies: BTreeMap::new(),
                 optional: false,
             },
         );

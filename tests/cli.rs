@@ -183,9 +183,7 @@ fn test_add_help() {
         .args(["add", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("dependencies"))
-        .stdout(predicate::str::contains("--save-dev"))
-        .stdout(predicate::str::contains("--save-peer"));
+        .stdout(predicate::str::contains("dependencies"));
 }
 
 #[test]
@@ -205,9 +203,7 @@ fn test_remove_help() {
         .args(["remove", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("dependencies"))
-        .stdout(predicate::str::contains("--save-dev"))
-        .stdout(predicate::str::contains("--save-peer"));
+        .stdout(predicate::str::contains("dependencies"));
 }
 
 #[test]
@@ -220,8 +216,7 @@ fn test_uninstall_alias_routes_to_remove() {
         .success()
         .stdout(predicate::str::contains(
             "Remove a package from dependencies",
-        ))
-        .stdout(predicate::str::contains("--save-dev"));
+        ));
 }
 
 #[test]
@@ -926,7 +921,6 @@ fn test_verify_package_not_in_lockfile() {
       "resolved": "https://registry.apkg.ai/api/v1/packages/foo/1.0.0/tarball",
       "integrity": "sha256-abc",
       "dependencies": {},
-      "peerDependencies": {},
       "type": "skill",
       "optional": false
     }

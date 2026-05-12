@@ -4,46 +4,32 @@ use std::path::Path;
 use crate::config::manifest;
 use crate::error::AppError;
 use crate::util::display;
-use crate::util::package::DepCategory;
 
 pub struct RemoveOptions<'a> {
     pub package: &'a str,
-    pub category: DepCategory,
 }
 
 pub fn run(opts: &RemoveOptions<'_>) -> Result<(), AppError> {
     let cwd = env::current_dir()?;
     let mut m = manifest::load(&cwd)?;
 
-    let deps = match opts.category {
-        DepCategory::Dependencies => m.dependencies.as_mut(),
-        DepCategory::DevDependencies => m.dev_dependencies.as_mut(),
-        DepCategory::PeerDependencies => m.peer_dependencies.as_mut(),
-    };
-
-    let Some(deps) = deps else {
+    let Some(deps) = m.dependencies.as_mut() else {
         return Err(AppError::InvalidInput(format!(
-            "Package \"{}\" is not in {}",
+            "Package \"{}\" is not in dependencies",
             opts.package,
-            opts.category.label(),
         )));
     };
 
     if deps.remove(opts.package).is_none() {
         return Err(AppError::InvalidInput(format!(
-            "Package \"{}\" is not in {}",
+            "Package \"{}\" is not in dependencies",
             opts.package,
-            opts.category.label(),
         )));
     }
 
     // Clear the map if it's now empty so it's omitted from apkg.json
     if deps.is_empty() {
-        match opts.category {
-            DepCategory::Dependencies => m.dependencies = None,
-            DepCategory::DevDependencies => m.dev_dependencies = None,
-            DepCategory::PeerDependencies => m.peer_dependencies = None,
-        }
+        m.dependencies = None;
     }
 
     manifest::save(&cwd, &m)?;
@@ -63,11 +49,7 @@ pub fn run(opts: &RemoveOptions<'_>) -> Result<(), AppError> {
     cleanup_cursor_setup(&cwd, opts.package);
     cleanup_codex_setup(&cwd, opts.package);
 
-    display::success(&format!(
-        "Removed {} from {}",
-        opts.package,
-        opts.category.label()
-    ));
+    display::success(&format!("Removed {} from dependencies", opts.package));
     if removed_files {
         display::label_value("Deleted", &install_dir.display().to_string());
     }

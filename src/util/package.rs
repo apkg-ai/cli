@@ -37,23 +37,6 @@ pub fn validate_package_name(name: &str) -> Result<&str, AppError> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DepCategory {
-    Dependencies,
-    DevDependencies,
-    PeerDependencies,
-}
-
-impl DepCategory {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Dependencies => "dependencies",
-            Self::DevDependencies => "devDependencies",
-            Self::PeerDependencies => "peerDependencies",
-        }
-    }
-}
-
 /// Parse a package spec like `name`, `name@version`, `@scope/name`, or `@scope/name@version`
 /// into `(name, Option<version>)`.
 pub fn parse_package_spec(spec: &str) -> (String, Option<&str>) {
@@ -84,13 +67,6 @@ pub fn parse_package_spec(spec: &str) -> (String, Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_dep_category_label() {
-        assert_eq!(DepCategory::Dependencies.label(), "dependencies");
-        assert_eq!(DepCategory::DevDependencies.label(), "devDependencies");
-        assert_eq!(DepCategory::PeerDependencies.label(), "peerDependencies");
-    }
 
     #[test]
     fn test_parse_unscoped() {

@@ -645,7 +645,6 @@ mod tests {
                     resolved: String::new(),
                     integrity: integrity.to_string(),
                     dependencies: BTreeMap::new(),
-                    peer_dependencies: BTreeMap::new(),
                     package_type: "skill".to_string(),
                     optional: false,
                 },

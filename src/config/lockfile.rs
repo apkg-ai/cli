@@ -26,7 +26,6 @@ pub struct LockedPackage {
     pub resolved: String,
     pub integrity: String,
     pub dependencies: BTreeMap<String, String>,
-    pub peer_dependencies: BTreeMap<String, String>,
     #[serde(rename = "type")]
     pub package_type: String,
     #[serde(default)]
@@ -99,7 +98,6 @@ mod tests {
                 resolved: "https://registry.apkg.ai/api/v1/packages/foo/1.0.0/tarball".to_string(),
                 integrity: "sha256-abc123".to_string(),
                 dependencies: BTreeMap::new(),
-                peer_dependencies: BTreeMap::new(),
                 package_type: "skill".to_string(),
                 optional: false,
             },
@@ -146,7 +144,6 @@ mod tests {
                     d.insert("baz".to_string(), "1.0.0".to_string());
                     d
                 },
-                peer_dependencies: BTreeMap::new(),
                 package_type: "agent".to_string(),
                 optional: false,
             },
@@ -173,7 +170,6 @@ mod tests {
                 resolved: String::new(),
                 integrity: String::new(),
                 dependencies: BTreeMap::new(),
-                peer_dependencies: BTreeMap::new(),
                 package_type: "skill".to_string(),
                 optional: false,
             },
@@ -185,7 +181,6 @@ mod tests {
                 resolved: String::new(),
                 integrity: String::new(),
                 dependencies: BTreeMap::new(),
-                peer_dependencies: BTreeMap::new(),
                 package_type: "agent".to_string(),
                 optional: false,
             },

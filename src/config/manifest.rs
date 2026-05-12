@@ -102,10 +102,6 @@ pub struct Manifest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependencies: Option<BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub dev_dependencies: Option<BTreeMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub peer_dependencies: Option<BTreeMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub scripts: Option<BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hook_permissions: Option<HookPermissions>,
@@ -292,8 +288,6 @@ mod tests {
             origin: "claude-code".to_string(),
             targets: vec!["claude-code".to_string()],
             dependencies: None,
-            dev_dependencies: None,
-            peer_dependencies: None,
             scripts: None,
             hook_permissions: None,
         };

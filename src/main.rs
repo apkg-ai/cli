@@ -106,14 +106,6 @@ enum Commands {
         /// Package name, optionally with version: name[@version]
         package: String,
 
-        /// Add to devDependencies instead
-        #[arg(long, short = 'D')]
-        save_dev: bool,
-
-        /// Add to peerDependencies instead
-        #[arg(long, short = 'P')]
-        save_peer: bool,
-
         /// Generate config for a specific tool only: cursor, claude-code, or all (default)
         #[arg(long, value_name = "TOOL", default_value = "all")]
         setup: SetupTargetArg,
@@ -151,14 +143,6 @@ enum Commands {
     Remove {
         /// Package name
         package: String,
-
-        /// Remove from devDependencies instead
-        #[arg(long, short = 'D')]
-        save_dev: bool,
-
-        /// Remove from peerDependencies instead
-        #[arg(long, short = 'P')]
-        save_peer: bool,
     },
 
     /// Create symlinks for local development
@@ -550,23 +534,13 @@ async fn run(cli: Cli) -> Result<(), AppError> {
         }
         Commands::Add {
             ref package,
-            save_dev,
-            save_peer,
             ref setup,
             no_setup,
         } => {
-            let category = if save_dev {
-                util::package::DepCategory::DevDependencies
-            } else if save_peer {
-                util::package::DepCategory::PeerDependencies
-            } else {
-                util::package::DepCategory::Dependencies
-            };
             let setup_target = resolve_setup_target(no_setup, setup);
             commands::add::run(commands::add::AddOptions {
                 package,
                 registry,
-                category,
                 setup_target,
             })
             .await
@@ -623,19 +597,8 @@ async fn run(cli: Cli) -> Result<(), AppError> {
             };
             commands::link::run_unlink(&action)
         }
-        Commands::Remove {
-            ref package,
-            save_dev,
-            save_peer,
-        } => {
-            let category = if save_dev {
-                util::package::DepCategory::DevDependencies
-            } else if save_peer {
-                util::package::DepCategory::PeerDependencies
-            } else {
-                util::package::DepCategory::Dependencies
-            };
-            commands::remove::run(&commands::remove::RemoveOptions { package, category })
+        Commands::Remove { ref package } => {
+            commands::remove::run(&commands::remove::RemoveOptions { package })
         }
         Commands::Pack => commands::pack::run(),
         Commands::Publish => commands::publish::run(registry).await,

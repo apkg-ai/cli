@@ -61,8 +61,15 @@ fn build_publish_metadata(
     if let Some(home) = &m.homepage {
         obj.insert("homepage".into(), serde_json::json!(home));
     }
-    if let Some(readme_filename) = &m.readme {
-        let readme_path = cwd.join(readme_filename);
+    // Explicit `readme` field wins; otherwise auto-detect README.md in the
+    // package root (matches `apkg init`'s scaffolding behavior).
+    let readme_filename = m.readme.clone().or_else(|| {
+        cwd.join("README.md")
+            .is_file()
+            .then(|| "README.md".to_string())
+    });
+    if let Some(readme_filename) = readme_filename {
+        let readme_path = cwd.join(&readme_filename);
         let content = std::fs::read_to_string(&readme_path).map_err(|e| {
             AppError::Other(format!(
                 "Failed to read readme file '{readme_filename}': {e}"
@@ -518,6 +525,28 @@ mod tests {
             metadata.as_object().unwrap().get("readme").unwrap(),
             "# Hello\nBody."
         );
+    }
+
+    #[test]
+    fn test_build_publish_metadata_auto_detects_readme_md() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("README.md"), "# Auto\nDetected.").unwrap();
+        let m = minimal_manifest(); // readme: None
+
+        let metadata = build_publish_metadata(&m, "sha256-xyz", tmp.path()).unwrap();
+        assert_eq!(
+            metadata.as_object().unwrap().get("readme").unwrap(),
+            "# Auto\nDetected."
+        );
+    }
+
+    #[test]
+    fn test_build_publish_metadata_no_readme_when_absent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let m = minimal_manifest();
+
+        let metadata = build_publish_metadata(&m, "sha256-xyz", tmp.path()).unwrap();
+        assert!(!metadata.as_object().unwrap().contains_key("readme"));
     }
 
     #[test]

@@ -101,22 +101,6 @@ pub struct Manifest {
     pub targets: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependencies: Option<BTreeMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scripts: Option<BTreeMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hook_permissions: Option<HookPermissions>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[serde(rename_all = "camelCase")]
-pub struct HookPermissions {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub filesystem: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub network: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub env: Option<Vec<String>>,
 }
 
 pub const MANIFEST_FILE: &str = "apkg.json";
@@ -288,8 +272,6 @@ mod tests {
             origin: "claude-code".to_string(),
             targets: vec!["claude-code".to_string()],
             dependencies: None,
-            scripts: None,
-            hook_permissions: None,
         };
         save(tmp.path(), &m).unwrap();
         let loaded = load(tmp.path()).unwrap();

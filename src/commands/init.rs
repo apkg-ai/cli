@@ -170,8 +170,6 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
         origin,
         targets,
         dependencies: None,
-        scripts: None,
-        hook_permissions: None,
     };
 
     manifest::save(&cwd, &m)?;

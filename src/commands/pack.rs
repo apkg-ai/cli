@@ -62,8 +62,6 @@ mod tests {
             origin: "claude-code".to_string(),
             targets: vec!["claude-code".to_string()],
             dependencies: None,
-            scripts: None,
-            hook_permissions: None,
         };
         crate::config::manifest::save(dir, &m).unwrap();
     }

@@ -345,7 +345,6 @@ mod tests {
                     resolved: String::new(),
                     integrity: String::new(),
                     dependencies: BTreeMap::new(),
-                    peer_dependencies: BTreeMap::new(),
                     package_type: "skill".to_string(),
                     optional: false,
                 },
@@ -445,7 +444,6 @@ mod tests {
                 integrity: format!("sha256-{name}-{version}"),
                 package_type: "skill".to_string(),
                 dependencies: BTreeMap::new(),
-                peer_dependencies: BTreeMap::new(),
             },
         )
     }

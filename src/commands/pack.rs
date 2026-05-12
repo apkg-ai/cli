@@ -62,8 +62,6 @@ mod tests {
             origin: "claude-code".to_string(),
             targets: vec!["claude-code".to_string()],
             dependencies: None,
-            dev_dependencies: None,
-            peer_dependencies: None,
             scripts: None,
             hook_permissions: None,
         };

@@ -231,7 +231,6 @@ pub(crate) fn merge_into_lockfile(existing: &mut Lockfile, result: &resolver::Re
             resolved: pkg.tarball_url.clone(),
             integrity: pkg.integrity.clone(),
             dependencies: pkg.dependencies.clone(),
-            peer_dependencies: pkg.peer_dependencies.clone(),
             package_type: pkg.package_type.clone(),
             optional: false,
         };
@@ -265,7 +264,6 @@ pub(crate) fn build_lockfile(result: &resolver::ResolutionResult) -> Lockfile {
                 resolved: pkg.tarball_url.clone(),
                 integrity: pkg.integrity.clone(),
                 dependencies: pkg.dependencies.clone(),
-                peer_dependencies: pkg.peer_dependencies.clone(),
                 package_type: pkg.package_type.clone(),
                 optional: false,
             };
@@ -441,7 +439,6 @@ mod tests {
                 integrity: format!("sha256-{name}-{version}"),
                 package_type: "skill".to_string(),
                 dependencies: BTreeMap::new(),
-                peer_dependencies: BTreeMap::new(),
             },
         )
     }
@@ -466,7 +463,6 @@ mod tests {
                     resolved: String::new(),
                     integrity: String::new(),
                     dependencies: BTreeMap::new(),
-                    peer_dependencies: BTreeMap::new(),
                     package_type: "skill".to_string(),
                     optional: false,
                 },
@@ -849,7 +845,6 @@ mod tests {
                     integrity: expected_integrity.clone(),
                     package_type: "skill".into(),
                     dependencies: BTreeMap::new(),
-                    peer_dependencies: BTreeMap::new(),
                 },
             );
         }
@@ -914,7 +909,6 @@ mod tests {
                     resolved: format!("https://example.test/{name}/{version}/tarball"),
                     integrity: integrity.to_string(),
                     dependencies: BTreeMap::new(),
-                    peer_dependencies: BTreeMap::new(),
                     package_type: "skill".to_string(),
                     optional: false,
                 },

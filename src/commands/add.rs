@@ -9,13 +9,11 @@ use crate::config::{lockfile, manifest};
 use crate::error::AppError;
 use crate::resolver;
 use crate::setup;
-use crate::util::package::DepCategory;
 use crate::util::{display, package::parse_package_spec};
 
 pub struct AddOptions<'a> {
     pub package: &'a str,
     pub registry: Option<&'a str>,
-    pub category: DepCategory,
     pub setup_target: Option<setup::SetupTarget>,
 }
 
@@ -24,19 +22,10 @@ fn manifest_range(version: &str) -> String {
     format!("^{version}")
 }
 
-/// Insert a dependency into the correct manifest category and return the range.
-fn update_manifest_deps(
-    m: &mut manifest::Manifest,
-    category: DepCategory,
-    name: &str,
-    version: &str,
-) -> String {
+/// Insert a dependency into the manifest and return the range.
+fn update_manifest_deps(m: &mut manifest::Manifest, name: &str, version: &str) -> String {
     let range = manifest_range(version);
-    let deps = match category {
-        DepCategory::Dependencies => m.dependencies.get_or_insert_with(BTreeMap::new),
-        DepCategory::DevDependencies => m.dev_dependencies.get_or_insert_with(BTreeMap::new),
-        DepCategory::PeerDependencies => m.peer_dependencies.get_or_insert_with(BTreeMap::new),
-    };
+    let deps = m.dependencies.get_or_insert_with(BTreeMap::new);
     deps.insert(name.to_string(), range.clone());
     range
 }
@@ -61,13 +50,11 @@ fn print_add_summary(
     name: &str,
     direct_pkg: &resolver::ResolvedPackage,
     manifest_range: &str,
-    category: DepCategory,
     cwd: &Path,
     total_pkg_count: usize,
 ) {
     display::success(&format!("Added {name}@{}", direct_pkg.version));
     display::label_value("Range", manifest_range);
-    display::label_value("Saved to", category.label());
     let direct_install_dir = cwd.join("apkg_packages").join(name);
     display::label_value("Location", &direct_install_dir.display().to_string());
     display::label_value("Integrity", &direct_pkg.integrity);
@@ -109,7 +96,7 @@ pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
         .packages
         .get(&name)
         .ok_or_else(|| AppError::Other(format!("Resolver did not resolve {name}")))?;
-    let manifest_range = update_manifest_deps(&mut m, opts.category, &name, &direct_pkg.version);
+    let manifest_range = update_manifest_deps(&mut m, &name, &direct_pkg.version);
     manifest::save(&cwd, &m)?;
 
     // Merge into existing lockfile
@@ -126,7 +113,6 @@ pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
         &name,
         direct_pkg,
         &manifest_range,
-        opts.category,
         &cwd,
         result.packages.len(),
     );
@@ -157,8 +143,6 @@ mod tests {
             origin: "claude-code".to_string(),
             targets: vec!["claude-code".to_string()],
             dependencies: None,
-            dev_dependencies: None,
-            peer_dependencies: None,
             scripts: None,
             hook_permissions: None,
         }
@@ -179,33 +163,11 @@ mod tests {
         let mut m = make_manifest();
         assert!(m.dependencies.is_none());
 
-        let range = update_manifest_deps(&mut m, DepCategory::Dependencies, "foo", "1.0.0");
+        let range = update_manifest_deps(&mut m, "foo", "1.0.0");
 
         assert_eq!(range, "^1.0.0");
         let deps = m.dependencies.unwrap();
         assert_eq!(deps.get("foo").unwrap(), "^1.0.0");
-    }
-
-    #[test]
-    fn test_update_manifest_deps_creates_dev_dependencies() {
-        let mut m = make_manifest();
-        assert!(m.dev_dependencies.is_none());
-
-        update_manifest_deps(&mut m, DepCategory::DevDependencies, "bar", "2.0.0");
-
-        let deps = m.dev_dependencies.unwrap();
-        assert_eq!(deps.get("bar").unwrap(), "^2.0.0");
-    }
-
-    #[test]
-    fn test_update_manifest_deps_creates_peer_dependencies() {
-        let mut m = make_manifest();
-        assert!(m.peer_dependencies.is_none());
-
-        update_manifest_deps(&mut m, DepCategory::PeerDependencies, "baz", "3.0.0");
-
-        let deps = m.peer_dependencies.unwrap();
-        assert_eq!(deps.get("baz").unwrap(), "^3.0.0");
     }
 
     #[test]
@@ -215,7 +177,7 @@ mod tests {
         existing.insert("old-pkg".to_string(), "^0.1.0".to_string());
         m.dependencies = Some(existing);
 
-        update_manifest_deps(&mut m, DepCategory::Dependencies, "new-pkg", "1.0.0");
+        update_manifest_deps(&mut m, "new-pkg", "1.0.0");
 
         let deps = m.dependencies.unwrap();
         assert_eq!(deps.len(), 2);
@@ -230,7 +192,7 @@ mod tests {
         existing.insert("foo".to_string(), "^1.0.0".to_string());
         m.dependencies = Some(existing);
 
-        update_manifest_deps(&mut m, DepCategory::Dependencies, "foo", "2.0.0");
+        update_manifest_deps(&mut m, "foo", "2.0.0");
 
         let deps = m.dependencies.unwrap();
         assert_eq!(deps.len(), 1);

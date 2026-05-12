@@ -168,7 +168,7 @@ pub async fn resolve(
 
 /// Read dependencies from an already-installed package's apkg.json.
 /// Uses lenient parsing (only extracts the `dependencies` field) so that
-/// packages missing other required fields (e.g. `platform`) still work.
+/// packages missing other required fields (e.g. `origin`, `targets`) still work.
 fn read_installed_deps(install_root: &Path, name: &str) -> BTreeMap<String, String> {
     let manifest_path = install_root
         .join("apkg_packages")
@@ -324,7 +324,8 @@ mod tests {
             dependencies: None,
             license: None,
             keywords: None,
-            platform: None,
+            origin: None,
+            targets: None,
             deprecated: None,
         }
     }

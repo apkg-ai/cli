@@ -33,7 +33,8 @@ pub async fn run(opts: SearchOptions<'_>) -> Result<(), AppError> {
                     "version": r.version,
                     "description": r.description,
                     "type": r.package_type,
-                    "platform": r.platform,
+                    "origin": r.origin,
+                    "targets": r.targets,
                 })).collect::<Vec<_>>(),
                 "total": resp.total,
             }))?
@@ -64,11 +65,25 @@ pub async fn run(opts: SearchOptions<'_>) -> Result<(), AppError> {
             .as_deref()
             .map(|t| format!(" [{t}]"))
             .unwrap_or_default();
-        let platform_str = result
-            .platform
+        // Render targets with the origin marked by a leading `*`.
+        let targets_str = result
+            .targets
             .as_ref()
             .filter(|p| !p.is_empty())
-            .map(|p| format!(" ({})", p.join(", ")))
+            .map(|p| {
+                let rendered = p
+                    .iter()
+                    .map(|t| {
+                        if Some(t) == result.origin.as_ref() {
+                            format!("*{t}")
+                        } else {
+                            t.clone()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(" ({rendered})")
+            })
             .unwrap_or_default();
 
         println!(
@@ -76,7 +91,7 @@ pub async fn run(opts: SearchOptions<'_>) -> Result<(), AppError> {
             name_style.apply_to(&result.name),
             version_style.apply_to(version_str),
             dim_style.apply_to(type_str),
-            dim_style.apply_to(&platform_str),
+            dim_style.apply_to(&targets_str),
             if desc.is_empty() {
                 String::new()
             } else {
@@ -117,7 +132,8 @@ mod tests {
                         "version": "1.0.0",
                         "description": "A test skill",
                         "type": "skill",
-                        "platform": ["claude"]
+                        "origin": "claude-code",
+                        "targets": ["claude-code"]
                     }
                 ],
                 "total": 1
@@ -150,7 +166,8 @@ mod tests {
                         "version": "1.0.0",
                         "description": "A cool skill",
                         "type": "skill",
-                        "platform": ["claude", "cursor"]
+                        "origin": "claude-code",
+                        "targets": ["claude-code", "cursor"]
                     },
                     {
                         "name": "@test/agent",

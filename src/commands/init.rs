@@ -5,7 +5,8 @@ use dialoguer::{Confirm, Input, MultiSelect, Select};
 
 use crate::config::credentials;
 use crate::config::manifest::{
-    self, validate_platforms, Author, Manifest, PackageType, KNOWN_PLATFORMS, MANIFEST_FILE,
+    self, validate_origin, validate_targets_known, Author, Manifest, PackageType, KNOWN_TOOLS,
+    MANIFEST_FILE,
 };
 use crate::error::AppError;
 use crate::setup;
@@ -100,25 +101,39 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
         )
     };
 
-    // Auto-detect platforms from project directory
+    // Auto-detect targets from project directory
     let detected_tools = setup::detect_tools(&cwd);
-    let defaults: Vec<bool> = KNOWN_PLATFORMS
+    let defaults: Vec<bool> = KNOWN_TOOLS
         .iter()
         .map(|p| detected_tools.iter().any(|t| t.to_key() == *p))
         .collect();
-    let platform_idxs = MultiSelect::new()
-        .with_prompt("Target platforms (space to toggle, enter to confirm)")
-        .items(KNOWN_PLATFORMS)
-        .defaults(&defaults)
+    let targets: Vec<String> = loop {
+        let idxs = MultiSelect::new()
+            .with_prompt("Targets (space to toggle, enter to confirm — at least one)")
+            .items(KNOWN_TOOLS)
+            .defaults(&defaults)
+            .interact()
+            .map_err(|e| AppError::Interactive(e.to_string()))?;
+        if !idxs.is_empty() {
+            break idxs.iter().map(|&i| KNOWN_TOOLS[i].to_string()).collect();
+        }
+        display::warn("At least one target must be selected.");
+    };
+
+    if let Some(err) = validate_targets_known(&targets) {
+        return Err(AppError::InvalidInput(err));
+    }
+
+    let origin_idx = Select::new()
+        .with_prompt("Primary target (origin) — the tool this package was originally authored for")
+        .items(&targets)
+        .default(0)
         .interact()
         .map_err(|e| AppError::Interactive(e.to_string()))?;
-    let platform: Vec<String> = platform_idxs
-        .iter()
-        .map(|&i| KNOWN_PLATFORMS[i].to_string())
-        .collect();
+    let origin = targets[origin_idx].clone();
 
-    for warning in validate_platforms(&platform) {
-        display::warn(&warning);
+    if let Some(err) = validate_origin(&origin, &targets) {
+        return Err(AppError::InvalidInput(err));
     }
 
     let readme = if Path::new("README.md").exists() {
@@ -152,7 +167,8 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
         authors,
         repository,
         homepage: None,
-        platform,
+        origin,
+        targets,
         dependencies: None,
         dev_dependencies: None,
         peer_dependencies: None,

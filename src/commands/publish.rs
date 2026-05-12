@@ -4,7 +4,7 @@ use std::path::Path;
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::api::client::ApiClient;
-use crate::config::manifest::validate_platforms;
+use crate::config::manifest::{validate_origin, validate_targets_known};
 use crate::config::{credentials, manifest};
 use crate::error::AppError;
 use crate::util::package::SCOPED_PACKAGE_NAME_RE;
@@ -79,7 +79,8 @@ fn build_publish_metadata(
     if let Some(deps) = &m.dependencies {
         obj.insert("dependencies".into(), serde_json::json!(deps));
     }
-    obj.insert("platform".into(), serde_json::json!(m.platform));
+    obj.insert("origin".into(), serde_json::json!(m.origin));
+    obj.insert("targets".into(), serde_json::json!(m.targets));
     Ok(metadata)
 }
 
@@ -124,8 +125,11 @@ pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
 
     pb.set_message("Uploading to registry...");
 
-    for warning in validate_platforms(&m.platform) {
-        display::warn(&warning);
+    if let Some(err) = validate_targets_known(&m.targets) {
+        return Err(AppError::InvalidInput(err));
+    }
+    if let Some(err) = validate_origin(&m.origin, &m.targets) {
+        return Err(AppError::InvalidInput(err));
     }
     let metadata = build_publish_metadata(&m, &hash, &cwd)?;
     let metadata_json = serde_json::to_string(&metadata)?;
@@ -165,7 +169,8 @@ mod tests {
             "type": pkg_type,
             "description": "Test package",
             "license": "MIT",
-            "platform": ["claude"]
+            "origin": "claude-code",
+            "targets": ["claude-code"]
         });
         std::fs::write(
             dir.join("apkg.json"),
@@ -267,7 +272,8 @@ mod tests {
             "type": "skill",
             "description": "Test package",
             "license": "MIT",
-            "platform": ["claude"],
+            "origin": "claude-code",
+            "targets": ["claude-code"],
         });
         let base = manifest.as_object_mut().unwrap();
         for (k, v) in extra.as_object().unwrap() {
@@ -433,7 +439,8 @@ mod tests {
             authors: None,
             repository: None,
             homepage: None,
-            platform: vec!["claude-code".to_string()],
+            origin: "claude-code".to_string(),
+            targets: vec!["claude-code".to_string()],
             dependencies: None,
             dev_dependencies: None,
             peer_dependencies: None,
@@ -454,7 +461,8 @@ mod tests {
         assert_eq!(obj.get("version").unwrap(), "1.0.0");
         assert_eq!(obj.get("integrity").unwrap(), "sha256-xyz");
         assert!(obj.contains_key("type"));
-        assert!(obj.contains_key("platform"));
+        assert!(obj.contains_key("origin"));
+        assert!(obj.contains_key("targets"));
         // Optionals absent when empty / None:
         assert!(!obj.contains_key("description"));
         assert!(!obj.contains_key("license"));

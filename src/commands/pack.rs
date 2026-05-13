@@ -33,7 +33,7 @@ pub fn run() -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::manifest::{Manifest, PackageType};
+    use crate::config::manifest::{Manifest, PackageType, Visibility};
     use crate::test_utils::env_lock;
     use std::fs;
     use std::path::Path;
@@ -62,6 +62,7 @@ mod tests {
             origin: "claude-code".to_string(),
             targets: vec!["claude-code".to_string()],
             dependencies: None,
+            visibility: Visibility::Public,
         };
         crate::config::manifest::save(dir, &m).unwrap();
     }

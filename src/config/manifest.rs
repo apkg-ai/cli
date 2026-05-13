@@ -67,6 +67,24 @@ impl std::fmt::Display for PackageType {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Visibility {
+    #[default]
+    Public,
+    Private,
+}
+
+impl std::fmt::Display for Visibility {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Visibility::Public => "public",
+            Visibility::Private => "private",
+        };
+        write!(f, "{s}")
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Author {
@@ -101,6 +119,7 @@ pub struct Manifest {
     pub targets: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependencies: Option<BTreeMap<String, String>>,
+    pub visibility: Visibility,
 }
 
 pub const MANIFEST_FILE: &str = "apkg.json";
@@ -186,7 +205,8 @@ mod tests {
             "description": "A skill",
             "license": "MIT",
             "origin": "claude-code",
-            "targets": ["claude-code"]
+            "targets": ["claude-code"],
+            "visibility": "public"
         }"#;
         let m: Manifest = serde_json::from_str(json).unwrap();
         assert_eq!(m.name, "my-skill");
@@ -217,7 +237,8 @@ mod tests {
             "targets": ["claude-code", "cursor"],
             "dependencies": {
                 "some-dep": "^1.0.0"
-            }
+            },
+            "visibility": "private"
         }"#;
         let m: Manifest = serde_json::from_str(json).unwrap();
         assert_eq!(m.name, "@acme/summarizer");
@@ -226,6 +247,7 @@ mod tests {
         assert_eq!(m.targets, vec!["claude-code", "cursor"]);
         assert_eq!(m.keywords.unwrap(), vec!["ai", "command"]);
         assert_eq!(m.dependencies.unwrap().len(), 1);
+        assert_eq!(m.visibility, Visibility::Private);
     }
 
     #[test]
@@ -238,6 +260,7 @@ mod tests {
             "license": "MIT",
             "origin": "claude-code",
             "targets": ["claude-code"],
+            "visibility": "public",
             "unknownField": true
         }"#;
         let result: Result<Manifest, _> = serde_json::from_str(json);
@@ -248,7 +271,7 @@ mod tests {
     fn test_all_package_types() {
         for type_str in PackageType::VARIANTS {
             let json = format!(
-                r#"{{"name":"t","version":"0.1.0","type":"{type_str}","description":"d","license":"MIT","origin":"claude-code","targets":["claude-code"]}}"#
+                r#"{{"name":"t","version":"0.1.0","type":"{type_str}","description":"d","license":"MIT","origin":"claude-code","targets":["claude-code"],"visibility":"public"}}"#
             );
             let m: Manifest = serde_json::from_str(&json).unwrap();
             assert_eq!(m.package_type.to_string(), *type_str);
@@ -272,6 +295,7 @@ mod tests {
             origin: "claude-code".to_string(),
             targets: vec!["claude-code".to_string()],
             dependencies: None,
+            visibility: Visibility::Public,
         };
         save(tmp.path(), &m).unwrap();
         let loaded = load(tmp.path()).unwrap();
@@ -298,7 +322,8 @@ mod tests {
             "description": "A skill",
             "license": "MIT",
             "origin": "claude-code",
-            "targets": ["claude-code", "cursor", "codex"]
+            "targets": ["claude-code", "cursor", "codex"],
+            "visibility": "public"
         }"#;
         let m: Manifest = serde_json::from_str(json).unwrap();
         assert_eq!(m.origin, "claude-code");
@@ -331,6 +356,34 @@ mod tests {
         }"#;
         let result: Result<Manifest, _> = serde_json::from_str(json);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_reject_missing_visibility() {
+        let json = r#"{
+            "name": "@user/my-skill",
+            "version": "1.0.0",
+            "type": "skill",
+            "description": "A skill",
+            "license": "MIT",
+            "origin": "claude-code",
+            "targets": ["claude-code"]
+        }"#;
+        let result: Result<Manifest, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_visibility_default_is_public() {
+        assert_eq!(Visibility::default(), Visibility::Public);
+        assert_eq!(Visibility::Public.to_string(), "public");
+        assert_eq!(Visibility::Private.to_string(), "private");
+    }
+
+    #[test]
+    fn test_visibility_serialized_as_kebab_case() {
+        let json = serde_json::to_string(&Visibility::Private).unwrap();
+        assert_eq!(json, "\"private\"");
     }
 
     #[test]

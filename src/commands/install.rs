@@ -655,6 +655,7 @@ mod tests {
             "origin": "claude-code",
             "targets": ["claude-code"],
             "dependencies": dep_map,
+            "visibility": "public",
         });
         std::fs::write(
             dir.join("apkg.json"),

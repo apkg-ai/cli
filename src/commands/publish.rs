@@ -86,6 +86,7 @@ fn build_publish_metadata(
     if let Some(deps) = &m.dependencies {
         obj.insert("dependencies".into(), serde_json::json!(deps));
     }
+    obj.insert("visibility".into(), serde_json::json!(m.visibility));
     obj.insert("origin".into(), serde_json::json!(m.origin));
     obj.insert("targets".into(), serde_json::json!(m.targets));
     Ok(metadata)
@@ -177,7 +178,8 @@ mod tests {
             "description": "Test package",
             "license": "MIT",
             "origin": "claude-code",
-            "targets": ["claude-code"]
+            "targets": ["claude-code"],
+            "visibility": "public"
         });
         std::fs::write(
             dir.join("apkg.json"),
@@ -281,6 +283,7 @@ mod tests {
             "license": "MIT",
             "origin": "claude-code",
             "targets": ["claude-code"],
+            "visibility": "public",
         });
         let base = manifest.as_object_mut().unwrap();
         for (k, v) in extra.as_object().unwrap() {
@@ -449,6 +452,7 @@ mod tests {
             origin: "claude-code".to_string(),
             targets: vec!["claude-code".to_string()],
             dependencies: None,
+            visibility: manifest::Visibility::Public,
         }
     }
 
@@ -466,6 +470,7 @@ mod tests {
         assert!(obj.contains_key("type"));
         assert!(obj.contains_key("origin"));
         assert!(obj.contains_key("targets"));
+        assert_eq!(obj.get("visibility").unwrap(), "public");
         // Optionals absent when empty / None:
         assert!(!obj.contains_key("description"));
         assert!(!obj.contains_key("license"));
@@ -474,6 +479,19 @@ mod tests {
         assert!(!obj.contains_key("homepage"));
         assert!(!obj.contains_key("readme"));
         assert!(!obj.contains_key("dependencies"));
+    }
+
+    #[test]
+    fn test_build_publish_metadata_forwards_private_visibility() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut m = minimal_manifest();
+        m.visibility = manifest::Visibility::Private;
+
+        let metadata = build_publish_metadata(&m, "sha256-xyz", tmp.path()).unwrap();
+        assert_eq!(
+            metadata.as_object().unwrap().get("visibility").unwrap(),
+            "private"
+        );
     }
 
     #[test]

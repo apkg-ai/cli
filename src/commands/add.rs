@@ -126,7 +126,7 @@ pub async fn run(opts: AddOptions<'_>) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::manifest::{Manifest, PackageType};
+    use crate::config::manifest::{Manifest, PackageType, Visibility};
 
     fn make_manifest() -> Manifest {
         Manifest {
@@ -143,6 +143,7 @@ mod tests {
             origin: "claude-code".to_string(),
             targets: vec!["claude-code".to_string()],
             dependencies: None,
+            visibility: Visibility::Public,
         }
     }
 

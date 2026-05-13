@@ -126,7 +126,8 @@ fn test_pack_with_manifest() {
   "description": "A test package",
   "license": "MIT",
   "origin": "claude-code",
-  "targets": ["claude-code"]
+  "targets": ["claude-code"],
+  "visibility": "public"
 }
 "#;
     std::fs::write(tmp.path().join("apkg.json"), manifest).unwrap();
@@ -251,7 +252,8 @@ fn test_remove_not_in_deps() {
   "description": "A test project",
   "license": "MIT",
   "origin": "claude-code",
-  "targets": ["claude-code"]
+  "targets": ["claude-code"],
+  "visibility": "public"
 }
 "#;
     std::fs::write(tmp.path().join("apkg.json"), manifest).unwrap();
@@ -274,6 +276,7 @@ fn test_remove_from_deps() {
   "license": "MIT",
   "origin": "claude-code",
   "targets": ["claude-code"],
+  "visibility": "public",
   "dependencies": {
     "my-dep": "^1.0.0",
     "other-dep": "^2.0.0"
@@ -452,7 +455,8 @@ fn test_install_no_args_empty_deps() {
   "description": "A test project",
   "license": "MIT",
   "origin": "claude-code",
-  "targets": ["claude-code"]
+  "targets": ["claude-code"],
+  "visibility": "public"
 }
 "#;
     std::fs::write(tmp.path().join("apkg.json"), manifest).unwrap();
@@ -475,6 +479,7 @@ fn test_install_frozen_no_lockfile() {
   "license": "MIT",
   "origin": "claude-code",
   "targets": ["claude-code"],
+  "visibility": "public",
   "dependencies": {
     "some-pkg": "^1.0.0"
   }
@@ -608,7 +613,8 @@ fn test_link_register_and_unregister() {
   "description": "A lib",
   "license": "MIT",
   "origin": "claude-code",
-  "targets": ["claude-code"]
+  "targets": ["claude-code"],
+  "visibility": "public"
 }
 "#;
     std::fs::write(tmp.path().join("apkg.json"), manifest).unwrap();
@@ -656,7 +662,8 @@ fn test_link_direct_path() {
   "description": "A lib",
   "license": "MIT",
   "origin": "claude-code",
-  "targets": ["claude-code"]
+  "targets": ["claude-code"],
+  "visibility": "public"
 }
 "#;
     std::fs::write(lib_dir.path().join("apkg.json"), lib_manifest).unwrap();
@@ -668,7 +675,8 @@ fn test_link_direct_path() {
   "description": "An app",
   "license": "MIT",
   "origin": "claude-code",
-  "targets": ["claude-code"]
+  "targets": ["claude-code"],
+  "visibility": "public"
 }
 "#;
     std::fs::write(app_dir.path().join("apkg.json"), app_manifest).unwrap();
@@ -748,7 +756,8 @@ fn test_update_empty_deps() {
   "description": "A test project",
   "license": "MIT",
   "origin": "claude-code",
-  "targets": ["claude-code"]
+  "targets": ["claude-code"],
+  "visibility": "public"
 }
 "#;
     std::fs::write(tmp.path().join("apkg.json"), manifest).unwrap();
@@ -771,6 +780,7 @@ fn test_update_package_not_in_deps() {
   "license": "MIT",
   "origin": "claude-code",
   "targets": ["claude-code"],
+  "visibility": "public",
   "dependencies": {
     "some-pkg": "^1.0.0"
   }
@@ -796,6 +806,7 @@ fn test_update_dry_run_flag_accepted() {
   "license": "MIT",
   "origin": "claude-code",
   "targets": ["claude-code"],
+  "visibility": "public",
   "dependencies": {
     "some-pkg": "^1.0.0"
   }
@@ -821,6 +832,7 @@ fn test_update_latest_flag_accepted() {
   "license": "MIT",
   "origin": "claude-code",
   "targets": ["claude-code"],
+  "visibility": "public",
   "dependencies": {
     "some-pkg": "^1.0.0"
   }
@@ -863,6 +875,7 @@ fn test_install_offline_without_lockfile_fails_fast() {
   "license": "MIT",
   "origin": "claude-code",
   "targets": ["claude-code"],
+  "visibility": "public",
   "dependencies": { "@acme/foo": "^1.0.0" }
 }"#,
     )
@@ -1290,7 +1303,8 @@ fn test_link_scoped_package() {
   "description": "A scoped lib",
   "license": "MIT",
   "origin": "claude-code",
-  "targets": ["claude-code"]
+  "targets": ["claude-code"],
+  "visibility": "public"
 }
 "#;
     std::fs::write(lib_dir.path().join("apkg.json"), lib_manifest).unwrap();
@@ -1302,7 +1316,8 @@ fn test_link_scoped_package() {
   "description": "An app",
   "license": "MIT",
   "origin": "claude-code",
-  "targets": ["claude-code"]
+  "targets": ["claude-code"],
+  "visibility": "public"
 }
 "#;
     std::fs::write(app_dir.path().join("apkg.json"), app_manifest).unwrap();
@@ -1345,7 +1360,8 @@ fn test_unlink_scoped_package() {
   "description": "A scoped lib",
   "license": "MIT",
   "origin": "claude-code",
-  "targets": ["claude-code"]
+  "targets": ["claude-code"],
+  "visibility": "public"
 }
 "#;
     std::fs::write(lib_dir.path().join("apkg.json"), lib_manifest).unwrap();
@@ -1357,7 +1373,8 @@ fn test_unlink_scoped_package() {
   "description": "An app",
   "license": "MIT",
   "origin": "claude-code",
-  "targets": ["claude-code"]
+  "targets": ["claude-code"],
+  "visibility": "public"
 }
 "#;
     std::fs::write(app_dir.path().join("apkg.json"), app_manifest).unwrap();

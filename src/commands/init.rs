@@ -5,8 +5,8 @@ use dialoguer::{Confirm, Input, MultiSelect, Select};
 
 use crate::config::credentials;
 use crate::config::manifest::{
-    self, validate_origin, validate_targets_known, Author, Manifest, PackageType, KNOWN_TOOLS,
-    MANIFEST_FILE,
+    self, validate_origin, validate_targets_known, Author, Manifest, PackageType, Visibility,
+    KNOWN_TOOLS, MANIFEST_FILE,
 };
 use crate::error::AppError;
 use crate::setup;
@@ -170,6 +170,7 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
         origin,
         targets,
         dependencies: None,
+        visibility: Visibility::Public,
     };
 
     manifest::save(&cwd, &m)?;

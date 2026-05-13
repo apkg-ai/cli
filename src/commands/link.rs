@@ -173,7 +173,7 @@ fn cleanup_empty_parents(path: &Path, stop_at: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::manifest::{Manifest, PackageType};
+    use crate::config::manifest::{Manifest, PackageType, Visibility};
     use crate::test_utils::env_lock;
 
     fn write_manifest(dir: &Path, name: &str) {
@@ -191,6 +191,7 @@ mod tests {
             origin: "claude-code".to_string(),
             targets: vec!["claude-code".to_string()],
             dependencies: None,
+            visibility: Visibility::Public,
         };
         crate::config::manifest::save(dir, &m).unwrap();
     }

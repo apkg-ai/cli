@@ -140,8 +140,8 @@ mod tests {
             authors: None,
             repository: None,
             homepage: None,
-            origin: "claude-code".to_string(),
-            targets: vec!["claude-code".to_string()],
+            origin: Some("claude-code".to_string()),
+            targets: Some(vec!["claude-code".to_string()]),
             dependencies: None,
             visibility: Visibility::Public,
         }

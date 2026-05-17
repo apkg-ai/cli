@@ -147,6 +147,31 @@ fn test_pack_with_manifest() {
 }
 
 #[test]
+fn test_non_project_manifest_missing_origin_fails_to_load() {
+    let tmp = TempDir::new().unwrap();
+    let manifest = r#"{
+  "name": "@user/my-skill",
+  "version": "0.1.0",
+  "type": "skill",
+  "description": "",
+  "license": "MIT",
+  "targets": ["claude-code"],
+  "visibility": "public"
+}
+"#;
+    std::fs::write(tmp.path().join("apkg.json"), manifest).unwrap();
+
+    cmd()
+        .arg("pack")
+        .current_dir(tmp.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "`origin` is required for non-project packages",
+        ));
+}
+
+#[test]
 fn test_token_create_help() {
     cmd()
         .args(["token", "create", "--help"])
@@ -873,8 +898,6 @@ fn test_install_offline_without_lockfile_fails_fast() {
   "type": "project",
   "description": "",
   "license": "MIT",
-  "origin": "claude-code",
-  "targets": ["claude-code"],
   "visibility": "public",
   "dependencies": { "@acme/foo": "^1.0.0" }
 }"#,

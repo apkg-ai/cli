@@ -101,40 +101,48 @@ pub fn run(opts: InitOptions) -> Result<(), AppError> {
         )
     };
 
-    // Auto-detect targets from project directory
-    let detected_tools = setup::detect_tools(&cwd);
-    let defaults: Vec<bool> = KNOWN_TOOLS
-        .iter()
-        .map(|p| detected_tools.iter().any(|t| t.to_key() == *p))
-        .collect();
-    let targets: Vec<String> = loop {
-        let idxs = MultiSelect::new()
-            .with_prompt("Targets (space to toggle, enter to confirm — at least one)")
-            .items(KNOWN_TOOLS)
-            .defaults(&defaults)
-            .interact()
-            .map_err(|e| AppError::Interactive(e.to_string()))?;
-        if !idxs.is_empty() {
-            break idxs.iter().map(|&i| KNOWN_TOOLS[i].to_string()).collect();
-        }
-        display::warn("At least one target must be selected.");
-    };
+    let (origin, targets): (Option<String>, Option<Vec<String>>) =
+        if package_type == PackageType::Project {
+            (None, None)
+        } else {
+            let detected_tools = setup::detect_tools(&cwd);
+            let defaults: Vec<bool> = KNOWN_TOOLS
+                .iter()
+                .map(|p| detected_tools.iter().any(|t| t.to_key() == *p))
+                .collect();
+            let targets: Vec<String> = loop {
+                let idxs = MultiSelect::new()
+                    .with_prompt("Targets (space to toggle, enter to confirm — at least one)")
+                    .items(KNOWN_TOOLS)
+                    .defaults(&defaults)
+                    .interact()
+                    .map_err(|e| AppError::Interactive(e.to_string()))?;
+                if !idxs.is_empty() {
+                    break idxs.iter().map(|&i| KNOWN_TOOLS[i].to_string()).collect();
+                }
+                display::warn("At least one target must be selected.");
+            };
 
-    if let Some(err) = validate_targets_known(&targets) {
-        return Err(AppError::InvalidInput(err));
-    }
+            if let Some(err) = validate_targets_known(&targets) {
+                return Err(AppError::InvalidInput(err));
+            }
 
-    let origin_idx = Select::new()
-        .with_prompt("Primary target (origin) — the tool this package was originally authored for")
-        .items(&targets)
-        .default(0)
-        .interact()
-        .map_err(|e| AppError::Interactive(e.to_string()))?;
-    let origin = targets[origin_idx].clone();
+            let origin_idx = Select::new()
+                .with_prompt(
+                    "Primary target (origin) — the tool this package was originally authored for",
+                )
+                .items(&targets)
+                .default(0)
+                .interact()
+                .map_err(|e| AppError::Interactive(e.to_string()))?;
+            let origin = targets[origin_idx].clone();
 
-    if let Some(err) = validate_origin(&origin, &targets) {
-        return Err(AppError::InvalidInput(err));
-    }
+            if let Some(err) = validate_origin(&origin, &targets) {
+                return Err(AppError::InvalidInput(err));
+            }
+
+            (Some(origin), Some(targets))
+        };
 
     let readme = if Path::new("README.md").exists() {
         Some("README.md".to_string())

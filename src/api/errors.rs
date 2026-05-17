@@ -53,6 +53,9 @@ fn format_api_error(status: u16, body: &str) -> AppError {
             if status == 401 {
                 return AppError::AuthFailed(message);
             }
+            if status == 402 && envelope.error.code == "PRIVATE_PACKAGE_QUOTA_EXCEEDED" {
+                return AppError::PrivatePackageQuotaExceeded { message };
+            }
             AppError::Api {
                 code: envelope.error.code,
                 message,

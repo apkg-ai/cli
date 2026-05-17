@@ -46,6 +46,13 @@ pub enum AppError {
         status: u16,
     },
 
+    #[error("{message}")]
+    #[diagnostic(
+        code(apkg::private_quota_exceeded),
+        help("Visit https://apkg.ai/pricing to upgrade.")
+    )]
+    PrivatePackageQuotaExceeded { message: String },
+
     #[error("Authentication required. Run `apkg login` first.")]
     #[diagnostic(code(apkg::auth), help("Run `apkg login` to authenticate."))]
     AuthRequired,

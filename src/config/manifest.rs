@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PackageType {
     Project,
@@ -115,8 +115,10 @@ pub struct Manifest {
     pub repository: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
-    pub origin: String,
-    pub targets: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub targets: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependencies: Option<BTreeMap<String, String>>,
     pub visibility: Visibility,
@@ -182,6 +184,18 @@ pub fn load(dir: &Path) -> Result<Manifest, AppError> {
         .map_err(|e| AppError::Manifest(format!("Failed to read {MANIFEST_FILE}: {e}")))?;
     let manifest: Manifest = serde_json::from_str(&content)
         .map_err(|e| AppError::Manifest(format!("Invalid {MANIFEST_FILE}: {e}")))?;
+    if manifest.package_type != PackageType::Project {
+        if manifest.origin.is_none() {
+            return Err(AppError::Manifest(
+                "`origin` is required for non-project packages".into(),
+            ));
+        }
+        if manifest.targets.is_none() {
+            return Err(AppError::Manifest(
+                "`targets` is required for non-project packages".into(),
+            ));
+        }
+    }
     Ok(manifest)
 }
 
@@ -214,8 +228,8 @@ mod tests {
         assert!(matches!(m.package_type, PackageType::Skill));
         assert_eq!(m.description, "A skill");
         assert_eq!(m.license, "MIT");
-        assert_eq!(m.origin, "claude-code");
-        assert_eq!(m.targets, vec!["claude-code"]);
+        assert_eq!(m.origin.as_deref(), Some("claude-code"));
+        assert_eq!(m.targets.as_deref(), Some(&["claude-code".to_string()][..]));
         assert!(m.keywords.is_none());
         assert!(m.dependencies.is_none());
     }
@@ -243,8 +257,8 @@ mod tests {
         let m: Manifest = serde_json::from_str(json).unwrap();
         assert_eq!(m.name, "@acme/summarizer");
         assert!(matches!(m.package_type, PackageType::Command));
-        assert_eq!(m.origin, "claude-code");
-        assert_eq!(m.targets, vec!["claude-code", "cursor"]);
+        assert_eq!(m.origin.as_deref(), Some("claude-code"));
+        assert_eq!(m.targets.unwrap(), vec!["claude-code", "cursor"]);
         assert_eq!(m.keywords.unwrap(), vec!["ai", "command"]);
         assert_eq!(m.dependencies.unwrap().len(), 1);
         assert_eq!(m.visibility, Visibility::Private);
@@ -292,8 +306,8 @@ mod tests {
             authors: None,
             repository: None,
             homepage: None,
-            origin: "claude-code".to_string(),
-            targets: vec!["claude-code".to_string()],
+            origin: Some("claude-code".to_string()),
+            targets: Some(vec!["claude-code".to_string()]),
             dependencies: None,
             visibility: Visibility::Public,
         };
@@ -302,8 +316,8 @@ mod tests {
         assert_eq!(loaded.name, "test-pkg");
         assert!(matches!(loaded.package_type, PackageType::Agent));
         assert_eq!(loaded.keywords.unwrap(), vec!["ai"]);
-        assert_eq!(loaded.origin, "claude-code");
-        assert_eq!(loaded.targets, vec!["claude-code"]);
+        assert_eq!(loaded.origin.as_deref(), Some("claude-code"));
+        assert_eq!(loaded.targets.unwrap(), vec!["claude-code"]);
     }
 
     #[test]
@@ -326,36 +340,71 @@ mod tests {
             "visibility": "public"
         }"#;
         let m: Manifest = serde_json::from_str(json).unwrap();
-        assert_eq!(m.origin, "claude-code");
-        assert_eq!(m.targets, vec!["claude-code", "cursor", "codex"]);
+        assert_eq!(m.origin.as_deref(), Some("claude-code"));
+        assert_eq!(m.targets.unwrap(), vec!["claude-code", "cursor", "codex"]);
     }
 
     #[test]
-    fn test_reject_missing_origin() {
-        let json = r#"{
-            "name": "@user/my-skill",
-            "version": "1.0.0",
-            "type": "skill",
-            "description": "A skill",
-            "license": "MIT",
-            "targets": ["claude-code"]
-        }"#;
-        let result: Result<Manifest, _> = serde_json::from_str(json);
-        assert!(result.is_err());
+    fn test_reject_missing_origin_for_non_project() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(MANIFEST_FILE),
+            r#"{
+                "name": "@user/my-skill",
+                "version": "1.0.0",
+                "type": "skill",
+                "description": "A skill",
+                "license": "MIT",
+                "targets": ["claude-code"],
+                "visibility": "public"
+            }"#,
+        )
+        .unwrap();
+        let err = load(tmp.path()).expect_err("should fail");
+        assert!(matches!(err, AppError::Manifest(ref msg) if msg.contains("`origin` is required")));
     }
 
     #[test]
-    fn test_reject_missing_targets() {
-        let json = r#"{
-            "name": "@user/my-skill",
-            "version": "1.0.0",
-            "type": "skill",
-            "description": "A skill",
-            "license": "MIT",
-            "origin": "claude-code"
-        }"#;
-        let result: Result<Manifest, _> = serde_json::from_str(json);
-        assert!(result.is_err());
+    fn test_reject_missing_targets_for_non_project() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(MANIFEST_FILE),
+            r#"{
+                "name": "@user/my-skill",
+                "version": "1.0.0",
+                "type": "skill",
+                "description": "A skill",
+                "license": "MIT",
+                "origin": "claude-code",
+                "visibility": "public"
+            }"#,
+        )
+        .unwrap();
+        let err = load(tmp.path()).expect_err("should fail");
+        assert!(
+            matches!(err, AppError::Manifest(ref msg) if msg.contains("`targets` is required"))
+        );
+    }
+
+    #[test]
+    fn test_project_without_origin_targets_loads_ok() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(MANIFEST_FILE),
+            r#"{
+                "name": "@user/my-project",
+                "version": "1.0.0",
+                "type": "project",
+                "description": "A project",
+                "license": "MIT",
+                "visibility": "public"
+            }"#,
+        )
+        .unwrap();
+        let m = load(tmp.path()).expect("should load");
+        assert!(matches!(m.package_type, PackageType::Project));
+        assert!(m.origin.is_none());
+        assert!(m.targets.is_none());
     }
 
     #[test]

@@ -87,8 +87,12 @@ fn build_publish_metadata(
         obj.insert("dependencies".into(), serde_json::json!(deps));
     }
     obj.insert("visibility".into(), serde_json::json!(m.visibility));
-    obj.insert("origin".into(), serde_json::json!(m.origin));
-    obj.insert("targets".into(), serde_json::json!(m.targets));
+    if let Some(origin) = &m.origin {
+        obj.insert("origin".into(), serde_json::json!(origin));
+    }
+    if let Some(targets) = &m.targets {
+        obj.insert("targets".into(), serde_json::json!(targets));
+    }
     Ok(metadata)
 }
 
@@ -133,10 +137,13 @@ pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
 
     pb.set_message("Uploading to registry...");
 
-    if let Some(err) = validate_targets_known(&m.targets) {
+    // Non-project manifests are guaranteed by manifest::load() to have these set.
+    let targets = m.targets.as_deref().unwrap_or(&[]);
+    let origin = m.origin.as_deref().unwrap_or("");
+    if let Some(err) = validate_targets_known(targets) {
         return Err(AppError::InvalidInput(err));
     }
-    if let Some(err) = validate_origin(&m.origin, &m.targets) {
+    if let Some(err) = validate_origin(origin, targets) {
         return Err(AppError::InvalidInput(err));
     }
     let metadata = build_publish_metadata(&m, &hash, &cwd)?;
@@ -449,8 +456,8 @@ mod tests {
             authors: None,
             repository: None,
             homepage: None,
-            origin: "claude-code".to_string(),
-            targets: vec!["claude-code".to_string()],
+            origin: Some("claude-code".to_string()),
+            targets: Some(vec!["claude-code".to_string()]),
             dependencies: None,
             visibility: manifest::Visibility::Public,
         }

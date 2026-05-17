@@ -251,6 +251,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_publish_surfaces_private_quota_exceeded_for_user() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        write_manifest(tmp.path(), "@user/over-the-limit", "skill");
+        std::fs::write(tmp.path().join("index.ts"), "export default {};").unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path("/packages/%40user%2Fover-the-limit"))
+            .respond_with(ResponseTemplate::new(402).set_body_json(serde_json::json!({
+                "error": {
+                    "code": "PRIVATE_PACKAGE_QUOTA_EXCEEDED",
+                    "message": "You've reached the free limit of 3 private packages. Upgrade to publish more.",
+                    "details": [
+                        {"code": "scope", "message": "user"},
+                        {"code": "limit", "message": "3"},
+                        {"code": "current", "message": "3"}
+                    ],
+                    "requestId": "req-123"
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let err = run(Some(&server.uri())).await.unwrap_err();
+        match err {
+            AppError::PrivatePackageQuotaExceeded { message } => {
+                assert!(message.contains("free limit of 3"));
+            }
+            other => panic!("expected PrivatePackageQuotaExceeded, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_publish_surfaces_private_quota_exceeded_for_org() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        write_manifest(tmp.path(), "@acme/secret", "skill");
+        std::fs::write(tmp.path().join("index.ts"), "export default {};").unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path("/packages/%40acme%2Fsecret"))
+            .respond_with(ResponseTemplate::new(402).set_body_json(serde_json::json!({
+                "error": {
+                    "code": "PRIVATE_PACKAGE_QUOTA_EXCEEDED",
+                    "message": "Private packages on organization scopes require a paid plan.",
+                    "details": [{"code": "scope", "message": "org"}],
+                    "requestId": "req-456"
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let err = run(Some(&server.uri())).await.unwrap_err();
+        assert!(matches!(err, AppError::PrivatePackageQuotaExceeded { .. }));
+    }
+
+    #[tokio::test]
     async fn test_publish_scope_mismatch_warning() {
         let _lock = env_lock();
         let tmp = tempfile::tempdir().unwrap();

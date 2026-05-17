@@ -180,6 +180,45 @@ mod tests {
     }
 
     #[test]
+    fn test_format_api_error_402_private_quota_exceeded_user() {
+        let body = r#"{"error":{"code":"PRIVATE_PACKAGE_QUOTA_EXCEEDED","message":"You've reached the free limit of 3 private packages. Upgrade to publish more.","details":[{"code":"scope","message":"user"},{"code":"limit","message":"3"},{"code":"current","message":"3"}]}}"#;
+        let err = format_api_error(402, body);
+        match err {
+            AppError::PrivatePackageQuotaExceeded { message } => {
+                assert!(message.contains("free limit of 3"));
+            }
+            other => panic!("expected PrivatePackageQuotaExceeded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_format_api_error_402_private_quota_exceeded_org() {
+        let body = r#"{"error":{"code":"PRIVATE_PACKAGE_QUOTA_EXCEEDED","message":"Private packages on organization scopes require a paid plan.","details":[{"code":"scope","message":"org"}]}}"#;
+        let err = format_api_error(402, body);
+        match err {
+            AppError::PrivatePackageQuotaExceeded { message } => {
+                assert!(message.contains("organization scopes"));
+            }
+            other => panic!("expected PrivatePackageQuotaExceeded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_format_api_error_402_other_code_falls_through_to_api() {
+        // Only PRIVATE_PACKAGE_QUOTA_EXCEEDED gets the dedicated variant; any
+        // other 402 stays as AppError::Api so we don't misroute future codes.
+        let body = r#"{"error":{"code":"PAYMENT_REQUIRED","message":"Subscription past due","details":[]}}"#;
+        let err = format_api_error(402, body);
+        match err {
+            AppError::Api { code, status, .. } => {
+                assert_eq!(code, "PAYMENT_REQUIRED");
+                assert_eq!(status, 402);
+            }
+            other => panic!("expected Api, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_format_api_error_detail_with_code() {
         let body = r#"{"error":{"code":"VALIDATION","message":"Invalid","details":[{"field":"version","message":"bad semver","code":"INVALID_FORMAT"}]}}"#;
         let err = format_api_error(400, body);

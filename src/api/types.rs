@@ -261,7 +261,11 @@ pub struct DistTagResult {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegistrySigningKeyCollection {
-    pub keys: Vec<RegistrySigningKey>,
+    /// Keys currently active (status == "active" and not expired) server-side.
+    pub active_keys: Vec<RegistrySigningKey>,
+    /// Rotated/expired/revoked keys. Signatures made by these while they were
+    /// valid remain cryptographically verifiable, so `verify` trusts them too.
+    pub historical_keys: Vec<RegistrySigningKey>,
 }
 
 #[derive(Debug, Deserialize)]

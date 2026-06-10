@@ -151,6 +151,10 @@ pub async fn run(registry: Option<&str>) -> Result<(), AppError> {
     let client = ApiClient::new(registry)?;
     let resp = client.publish(&m.name, &metadata_json, data).await?;
 
+    // Drop any cached metadata so the next `info`/`search` reflects this publish
+    // immediately rather than serving a stale entry within the TTL window.
+    let _ = crate::config::metadata_cache::remove(&m.name);
+
     pb.finish_and_clear();
 
     display::success(&format!("Published {}@{}", resp.name, resp.version));

@@ -28,6 +28,9 @@ pub async fn run(opts: DeprecateOptions<'_>) -> Result<(), AppError> {
         }
     }
 
+    // Invalidate cached metadata so the (un)deprecation shows on the next read.
+    let _ = crate::config::metadata_cache::remove(&name);
+
     Ok(())
 }
 

@@ -97,6 +97,18 @@ pub fn store(name: &str, body: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Drop the cached metadata for a package so the next read refetches from the
+/// registry. Call after any write that mutates a package's metadata (publish,
+/// dist-tag add/rm, deprecate) — otherwise a stale entry can be served for up
+/// to the TTL window. No-op if no entry exists.
+pub fn remove(name: &str) -> Result<(), AppError> {
+    let path = entry_path(name)?;
+    if path.exists() {
+        fs::remove_file(&path)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,6 +165,34 @@ mod tests {
     fn test_missing_entry_returns_none() {
         with_temp_cache(|| {
             assert!(load("nope").unwrap().is_none());
+        });
+    }
+
+    #[test]
+    fn test_remove_drops_entry() {
+        with_temp_cache(|| {
+            store("x", "{}").unwrap();
+            assert!(load("x").unwrap().is_some());
+            remove("x").unwrap();
+            assert!(load("x").unwrap().is_none());
+        });
+    }
+
+    #[test]
+    fn test_remove_missing_is_ok() {
+        with_temp_cache(|| {
+            // Removing a non-existent entry must not error.
+            remove("never-stored").unwrap();
+        });
+    }
+
+    #[test]
+    fn test_remove_scoped_name() {
+        with_temp_cache(|| {
+            store("@acme/foo", "{}").unwrap();
+            assert!(load("@acme/foo").unwrap().is_some());
+            remove("@acme/foo").unwrap();
+            assert!(load("@acme/foo").unwrap().is_none());
         });
     }
 

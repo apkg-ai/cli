@@ -1366,21 +1366,31 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/registry/signing-keys"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "keys": [{
+                "activeKeys": [{
                     "keyId": "rsk-001",
                     "publicKey": "ed25519-pub",
                     "algorithm": "ed25519",
                     "status": "active",
                     "createdAt": "2026-01-01T00:00:00Z",
                     "expiresAt": "2027-01-01T00:00:00Z"
+                }],
+                "historicalKeys": [{
+                    "keyId": "rsk-000",
+                    "publicKey": "ed25519-old",
+                    "algorithm": "ed25519",
+                    "status": "rotated",
+                    "createdAt": "2025-01-01T00:00:00Z",
+                    "expiresAt": "2026-01-01T00:00:00Z"
                 }]
             })))
             .mount(&server)
             .await;
         let client = make_test_client(&server).await;
         let resp = client.get_registry_signing_keys().await.unwrap();
-        assert_eq!(resp.keys.len(), 1);
-        assert_eq!(resp.keys[0].key_id, "rsk-001");
+        assert_eq!(resp.active_keys.len(), 1);
+        assert_eq!(resp.active_keys[0].key_id, "rsk-001");
+        assert_eq!(resp.historical_keys.len(), 1);
+        assert_eq!(resp.historical_keys[0].key_id, "rsk-000");
     }
 
     #[tokio::test]

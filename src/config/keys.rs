@@ -93,12 +93,17 @@ pub fn load(key_id: &str) -> Result<Option<StoredKey>, AppError> {
     let dir = keys_dir()?;
     let filename = format!("{}.json", key_filename(key_id));
     let path = dir.join(filename);
-    if !path.exists() {
-        return Ok(None);
+    if path.exists() {
+        let content = fs::read_to_string(&path)?;
+        let key: StoredKey = serde_json::from_str(&content)?;
+        return Ok(Some(key));
     }
-    let content = fs::read_to_string(&path)?;
-    let key: StoredKey = serde_json::from_str(&content)?;
-    Ok(Some(key))
+    // Auto-heal fallback: a key written before the fingerprint encoding switch
+    // (standard base64) is filed under a different filename than its current
+    // base64url id would produce. `list_local` reads `key_id` from file
+    // contents, so match on that to find the key regardless of filename drift.
+    let stored = list_local()?.into_iter().find(|k| k.key_id == key_id);
+    Ok(stored)
 }
 
 pub fn list_local() -> Result<Vec<StoredKey>, AppError> {
@@ -311,6 +316,36 @@ mod tests {
     #[test]
     fn test_key_filename_special_chars() {
         assert_eq!(key_filename("SHA256:a+b/c:d"), "SHA256_a_b_c_d");
+    }
+
+    /// Auto-heal: a key whose on-disk filename does not match what
+    /// `key_filename(key_id)` would produce today (e.g. written before the
+    /// base64url fingerprint switch) must still be found by `load`, via the
+    /// content-scan fallback that matches on the stored `key_id`.
+    #[cfg(unix)]
+    #[test]
+    fn test_load_falls_back_to_content_scan_on_filename_drift() {
+        let _lock = crate::test_utils::env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let dir = tmp.path().join(".apkg").join("keys");
+        fs::create_dir_all(&dir).unwrap();
+
+        // key_id is base64url, but file it under an arbitrary unrelated name so
+        // the direct `key_filename` path can never hit it.
+        let key = make_test_key("SHA256:abc-def_ghi", "drifted");
+        let content = serde_json::to_string_pretty(&key).unwrap();
+        fs::write(dir.join("legacy-filename.json"), content).unwrap();
+
+        let loaded = load("SHA256:abc-def_ghi")
+            .unwrap()
+            .expect("fallback should find the key by stored key_id");
+        assert_eq!(loaded.key_id, "SHA256:abc-def_ghi");
+        assert_eq!(loaded.name, "drifted");
+
+        // A genuinely-absent key still returns None.
+        assert!(load("SHA256:not-here").unwrap().is_none());
     }
 
     #[cfg(unix)]

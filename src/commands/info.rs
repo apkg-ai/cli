@@ -27,6 +27,7 @@ pub async fn run(opts: InfoOptions<'_>) -> Result<(), AppError> {
         let json_val = serde_json::to_string_pretty(&serde_json::json!({
             "name": metadata.name,
             "description": metadata.description,
+            "deprecated": metadata.deprecated,
             "distTags": metadata.dist_tags,
             "versions": metadata.versions.keys().collect::<Vec<_>>(),
             "maintainers": metadata.maintainers.iter().map(|m| &m.username).collect::<Vec<_>>(),
@@ -54,6 +55,14 @@ pub async fn run(opts: InfoOptions<'_>) -> Result<(), AppError> {
         name_style.apply_to(&metadata.name),
         version_style.apply_to(latest)
     );
+
+    // Package-level deprecation notice (shown prominently right under the name).
+    if let Some(msg) = &metadata.deprecated {
+        if !msg.is_empty() {
+            let warn_style = Style::new().yellow().bold();
+            println!("{} {}", warn_style.apply_to("DEPRECATED:"), msg);
+        }
+    }
 
     // Description
     if let Some(desc) = &metadata.description {
@@ -238,6 +247,39 @@ mod tests {
         })
         .await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_info_deprecated_package_renders() {
+        let _lock = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_env(tmp.path());
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/packages/oldpkg"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "oldpkg",
+                "description": "A deprecated package",
+                "deprecated": "use @scope/newpkg instead",
+                "distTags": { "latest": "1.0.0" },
+                "versions": { "1.0.0": { "version": "1.0.0" } },
+                "maintainers": [{ "username": "alice" }],
+                "createdAt": "2026-01-01T00:00:00Z",
+                "updatedAt": "2026-02-01T00:00:00Z"
+            })))
+            .mount(&server)
+            .await;
+
+        // Both output modes must handle the package-level `deprecated` field.
+        for json in [true, false] {
+            let result = run(InfoOptions {
+                package: "oldpkg",
+                json,
+                registry: Some(&server.uri()),
+            })
+            .await;
+            assert!(result.is_ok(), "info failed for json={json}");
+        }
     }
 
     #[tokio::test]

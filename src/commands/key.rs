@@ -1,4 +1,5 @@
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64URL;
 use base64::Engine;
 use ed25519_dalek::{Signer, SigningKey};
 use rand::rngs::OsRng;
@@ -33,8 +34,14 @@ pub enum KeyAction<'a> {
 }
 
 fn compute_key_id(public_key_bytes: &[u8]) -> String {
+    // Fingerprints must be base64url (no padding) to match the registry's
+    // `computeFingerprint` (api-key/api-registry). Using standard base64 here
+    // produced a different string for the same key, so `key rotate` (which
+    // loads the local key by id AND sends that id to the registry) could never
+    // satisfy both stores. Key MATERIAL (public/private key, attestation
+    // signature) still uses standard `BASE64` — only the fingerprint is url-safe.
     let hash = Sha256::digest(public_key_bytes);
-    let encoded = BASE64.encode(hash);
+    let encoded = BASE64URL.encode(hash);
     format!("SHA256:{encoded}")
 }
 
@@ -274,6 +281,21 @@ mod tests {
         let key_id = compute_key_id(b"test-public-key");
         assert!(key_id.starts_with("SHA256:"));
         assert!(key_id.len() > 10);
+        // Must be base64url (no padding) to match the registry fingerprint —
+        // standard-base64 chars must never appear.
+        let body = key_id.strip_prefix("SHA256:").unwrap();
+        assert!(
+            !body.contains('+'),
+            "fingerprint must be url-safe: {key_id}"
+        );
+        assert!(
+            !body.contains('/'),
+            "fingerprint must be url-safe: {key_id}"
+        );
+        assert!(
+            !body.contains('='),
+            "fingerprint must be unpadded: {key_id}"
+        );
     }
 
     #[test]

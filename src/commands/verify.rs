@@ -113,9 +113,11 @@ pub async fn run(opts: VerifyOptions<'_>) -> Result<(), AppError> {
         .await
     {
         Ok(collection) => collection
-            .keys
+            .active_keys
             .into_iter()
-            .filter(|k| k.status == "active")
+            .chain(collection.historical_keys)
+            // Trust active AND historical keys: a signature made by a key that
+            // has since rotated/expired is still valid for what it signed.
             .map(|k| (k.key_id.clone(), k))
             .collect(),
         Err(e) => {
@@ -692,7 +694,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/registry/signing-keys"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "keys": []
+                "activeKeys": [], "historicalKeys": []
             })))
             .mount(&server)
             .await;
@@ -747,7 +749,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/registry/signing-keys"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "keys": []
+                "activeKeys": [], "historicalKeys": []
             })))
             .mount(&server)
             .await;
@@ -800,7 +802,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/registry/signing-keys"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "keys": []
+                "activeKeys": [], "historicalKeys": []
             })))
             .mount(&server)
             .await;
@@ -850,7 +852,8 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/registry/signing-keys"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "keys": []
+                "activeKeys": [],
+                "historicalKeys": []
             })))
             .mount(&server)
             .await;
@@ -902,7 +905,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/registry/signing-keys"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "keys": []
+                "activeKeys": [], "historicalKeys": []
             })))
             .mount(&server)
             .await;
@@ -957,13 +960,15 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/registry/signing-keys"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "keys": [{
+                "activeKeys": [{
                     "keyId": "key-1",
                     "publicKey": "dGVzdA==",
                     "algorithm": "ed25519",
                     "status": "active",
-                    "createdAt": "2026-01-01T00:00:00Z"
-                }]
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "expiresAt": "2027-01-01T00:00:00Z"
+                }],
+                "historicalKeys": []
             })))
             .mount(&server)
             .await;
@@ -1012,13 +1017,15 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/registry/signing-keys"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "keys": [{
+                "activeKeys": [{
                     "keyId": "key-1",
                     "publicKey": "dGVzdA==",
                     "algorithm": "ed25519",
                     "status": "active",
-                    "createdAt": "2026-01-01T00:00:00Z"
-                }]
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "expiresAt": "2027-01-01T00:00:00Z"
+                }],
+                "historicalKeys": []
             })))
             .mount(&server)
             .await;
@@ -1082,7 +1089,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/registry/signing-keys"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "keys": []
+                "activeKeys": [], "historicalKeys": []
             })))
             .mount(&server)
             .await;
@@ -1132,7 +1139,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/registry/signing-keys"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "keys": []
+                "activeKeys": [], "historicalKeys": []
             })))
             .mount(&server)
             .await;

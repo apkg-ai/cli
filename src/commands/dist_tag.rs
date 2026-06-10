@@ -45,6 +45,9 @@ async fn run_add(
     let client = ApiClient::new(registry)?;
     let result = client.set_dist_tag(&name, tag, version).await?;
 
+    // Invalidate cached metadata so `dist-tag ls`/`info` reflect the change now.
+    let _ = crate::config::metadata_cache::remove(&name);
+
     display::success(&format!(
         "Set tag \"{}\" on {}@{}",
         result.tag, name, result.version
@@ -56,6 +59,8 @@ async fn run_add(
 async fn run_rm(package: &str, tag: &str, registry: Option<&str>) -> Result<(), AppError> {
     let client = ApiClient::new(registry)?;
     client.remove_dist_tag(package, tag).await?;
+
+    let _ = crate::config::metadata_cache::remove(package);
 
     display::success(&format!("Removed tag \"{tag}\" from {package}"));
 
